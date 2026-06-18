@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app import asset_admin, backgrounds, connection
+from app import asset_admin, backgrounds, connection, videos
 from app.asset_urls import _spritesheet_url, resolve_asset_url
 from app.catalog import catalog, overrides
 from app.catalog.static_asset_catalog import (
@@ -97,6 +97,9 @@ async def asset_catalog(kind: AssetKind, include_disabled: bool = False) -> dict
     can animate every sprite sheet client-side. Disabled assets are omitted
     unless `include_disabled` is set.
     """
+    if kind == "video":
+        # Live mp4 backgrounds aren't in the static catalog — discovered in MinIO.
+        return videos.catalog(include_disabled=include_disabled)
     categories_map = _CATEGORY_MAPS[kind]
     categories: list[dict] = []
     total = 0
@@ -211,6 +214,36 @@ async def backfill_background_configs() -> dict:
 async def rebuild_background_index() -> dict:
     """Regenerate the aggregate index by scanning per-background sidecars."""
     return {"entries": backgrounds.rebuild_index_from_sidecars()}
+
+
+# --- live (mp4) background zone editor --------------------------------------
+
+class VideoUpdate(BaseModel):
+    scene_type: str | None = None
+    description: str | None = None
+    enabled: bool | None = None
+    # Optional: omit to save only config (enabled/description) without touching zones.
+    zones: list[BgZoneIn] | None = None
+
+
+@router.get("/videos/{slug}")
+async def get_video(slug: str) -> dict:
+    """Editable zone data for one live (mp4) background."""
+    entry = videos.editable_entry_for_slug(slug)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"no video {slug!r}")
+    return entry
+
+
+@router.put("/videos/{slug}")
+async def update_video(slug: str, body: VideoUpdate) -> dict:
+    """Persist edited zones / config for one live background."""
+    try:
+        return videos.save_entry_for_slug(slug, body.model_dump(exclude_none=True))
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no video {slug!r}")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 # --- asset management: add new / rename existing -----------------------------

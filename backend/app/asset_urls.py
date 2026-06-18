@@ -22,6 +22,9 @@ def resolve_asset_url(slug: str, kind: AssetKind) -> Optional[str]:
         return OBJECT_CATALOG.get(slug)
     if kind == "background":
         return BACKGROUND_CATALOG.get(slug)
+    if kind == "video":
+        from app import videos  # lazy: videos imports backgrounds which imports catalog
+        return videos.video_url(slug)
     if kind == "character":
         entry = CHARACTER_CATALOG.get(slug)
         if not entry:

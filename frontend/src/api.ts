@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-export type AssetKind = 'character' | 'object' | 'background';
+export type AssetKind = 'character' | 'object' | 'background' | 'video';
 
 // --- asset types (subset of story-gen-exps api_v4 used by the editor) --------
 
@@ -106,12 +106,22 @@ export interface BackgroundEditable {
   allowed_surfaces: string[];
   enabled: boolean;
   zones: BgZone[];
+  // Set for live (mp4) backgrounds so the editor renders a <video> backdrop.
+  is_video?: boolean;
 }
 
 export interface BackgroundUpdate {
   scene_type: string;
   description: string;
   zones: BgZone[];
+}
+
+// Live (mp4) background config — any subset; omit `zones` to save config only.
+export interface VideoUpdate {
+  scene_type?: string;
+  description?: string;
+  enabled?: boolean;
+  zones?: BgZone[];
 }
 
 // --- asset API (prefix matches the backend router: /api/v4) ------------------
@@ -147,6 +157,13 @@ export const apiV4 = {
     client
       .put<BackgroundEditable>(`/backgrounds/${encodeURIComponent(slug)}`, body)
       .then((r) => r.data),
+
+  // Live (mp4) backgrounds — same editable shape as backgrounds (is_video=true).
+  getVideo: (slug: string) =>
+    client.get<BackgroundEditable>(`/videos/${encodeURIComponent(slug)}`).then((r) => r.data),
+
+  saveVideo: (slug: string, body: VideoUpdate) =>
+    client.put<BackgroundEditable>(`/videos/${encodeURIComponent(slug)}`, body).then((r) => r.data),
 
   addObject: (form: FormData) => client.post('/assets/objects', form).then((r) => r.data),
   addBackground: (form: FormData) => client.post('/assets/backgrounds', form).then((r) => r.data),

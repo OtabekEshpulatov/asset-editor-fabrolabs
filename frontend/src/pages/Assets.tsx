@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiV4, type AssetCatalogItem, type AssetKind } from '../api';
@@ -18,6 +18,7 @@ const KIND_TABS: { key: AssetKind; label: string }[] = [
   { key: 'character', label: 'Sprites' },
   { key: 'background', label: 'Backgrounds' },
   { key: 'object', label: 'Objects' },
+  { key: 'video', label: 'Live BGs' },
 ];
 
 const ANIM_PREFERENCE = ['idle', 'happy', 'move'];
@@ -131,6 +132,61 @@ function ImageCard({ item, onOpen }: { item: AssetCatalogItem; onOpen: () => voi
   );
 }
 
+// In-view autoplaying, muted, looping <video> — only plays while scrolled into
+// view so a grid of 3-min clips stays light.
+function VideoThumb({ url, size = 120 }: { url?: string; size?: number }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) el.play().catch(() => {});
+        else el.pause();
+      },
+      { rootMargin: '100px' },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return (
+    <video
+      ref={ref}
+      src={url}
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      className="bg-gray-100 object-cover"
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+function VideoCard({ item, onOpen }: { item: AssetCatalogItem; onOpen: () => void }) {
+  return (
+    <div
+      className={`flex w-[136px] flex-col items-center gap-1 rounded-lg border bg-white p-2 ${
+        item.enabled === false ? 'border-red-200 opacity-50' : 'border-gray-200'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="relative grid cursor-zoom-in place-items-center overflow-hidden rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+        title="Click to view + edit zones"
+      >
+        {item.url && <VideoThumb url={item.url} />}
+        <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[9px] text-white">
+          ▶ mp4
+        </span>
+      </button>
+      {item.enabled === false && <span className="text-[10px] text-red-500">disabled</span>}
+      <div className="break-all text-center text-[11px] leading-tight text-gray-700">{item.slug}</div>
+    </div>
+  );
+}
+
 function Lightbox({
   kind,
   item,
@@ -147,6 +203,7 @@ function Lightbox({
   onChanged: () => void;
 }) {
   const isSprite = kind === 'character';
+  const isVideo = kind === 'video';
   const anims = item.animation_urls ?? {};
   const names = Object.keys(anims).sort();
   const [anim, setAnim] = useState(
@@ -208,7 +265,8 @@ function Lightbox({
     setEnabled(next);
     setCfgError(null);
     try {
-      await apiV4.setAssetConfig(kind, item.slug, { enabled: next });
+      if (isVideo) await apiV4.saveVideo(item.slug, { enabled: next });
+      else await apiV4.setAssetConfig(kind, item.slug, { enabled: next });
       onChanged();
     } catch (e: any) {
       setEnabled(!next);
@@ -219,7 +277,8 @@ function Lightbox({
   const saveDesc = async () => {
     setCfgError(null);
     try {
-      await apiV4.setAssetConfig(kind, item.slug, { description: desc });
+      if (isVideo) await apiV4.saveVideo(item.slug, { description: desc });
+      else await apiV4.setAssetConfig(kind, item.slug, { description: desc });
       onChanged();
     } catch (e: any) {
       setCfgError(String(e?.response?.data?.detail ?? e));
@@ -271,6 +330,8 @@ function Lightbox({
               </button>
               {renameError && <span className="text-xs text-red-600">{renameError}</span>}
             </div>
+          ) : isVideo ? (
+            <span className="font-mono text-sm text-gray-800">{item.slug}</span>
           ) : (
             <button
               onClick={() => setRenaming(true)}
@@ -287,9 +348,9 @@ function Lightbox({
                 Manage actions →
               </button>
             )}
-            {kind === 'background' && (
+            {(kind === 'background' || isVideo) && (
               <Link
-                to={`/backgrounds/${encodeURIComponent(item.slug)}`}
+                to={`/${isVideo ? 'videos' : 'backgrounds'}/${encodeURIComponent(item.slug)}`}
                 className="text-blue-600 hover:underline"
               >
                 Edit zones →
@@ -321,7 +382,19 @@ function Lightbox({
           style={{ minWidth: 320, minHeight: 320 }}
         >
           <div style={{ transform: cssTransform(pending), transition: 'transform .15s ease' }}>
-            {isSprite && !showSheet ? (
+            {isVideo ? (
+              rawUrl && (
+                <video
+                  src={rawUrl}
+                  controls
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="max-h-[78vh] max-w-[86vw] object-contain"
+                />
+              )
+            ) : isSprite && !showSheet ? (
               <SpriteCanvas
                 key={`${anim}-${effRev}`}
                 url={withRev(anims[anim], effRev)}
@@ -365,13 +438,15 @@ function Lightbox({
           </div>
         )}
 
-        <TransformBar
-          value={pending}
-          onChange={setPending}
-          onApply={applyTransform}
-          busy={tBusy}
-          error={tError}
-        />
+        {!isVideo && (
+          <TransformBar
+            value={pending}
+            onChange={setPending}
+            onApply={applyTransform}
+            busy={tBusy}
+            error={tError}
+          />
+        )}
         {isSprite && pending.rotate % 360 !== 0 && (
           <p className="-mt-1 text-[11px] text-gray-400">
             Rotation is baked into each frame, so the animation grid stays intact.
@@ -386,7 +461,7 @@ function Lightbox({
             <input type="checkbox" checked={enabled} onChange={toggleEnabled} />
             enabled
           </label>
-          {kind === 'object' && (
+          {(kind === 'object' || isVideo) && (
             <>
               <input
                 value={desc}
@@ -406,7 +481,7 @@ function Lightbox({
             <span className="text-xs text-gray-400">edit description in the zone editor</span>
           )}
           {cfgError && <span className="text-xs text-red-600">{cfgError}</span>}
-          <ConfigViewer kind={kind} slug={item.slug} />
+          {!isVideo && <ConfigViewer kind={kind} slug={item.slug} />}
         </div>
       </div>
     </div>
@@ -583,13 +658,15 @@ export default function AssetsPage() {
               </button>
             );
           })}
-          <button
-            onClick={() => setAdding(true)}
-            disabled={!data}
-            className="ml-auto rounded-full border border-green-600 bg-green-50 px-3 py-1 text-sm font-medium text-green-800 disabled:opacity-40 hover:bg-green-100"
-          >
-            + Add {KIND_TABS.find((t) => t.key === kind)?.label.replace(/s$/, '')}
-          </button>
+          {kind !== 'video' && (
+            <button
+              onClick={() => setAdding(true)}
+              disabled={!data}
+              className="ml-auto rounded-full border border-green-600 bg-green-50 px-3 py-1 text-sm font-medium text-green-800 disabled:opacity-40 hover:bg-green-100"
+            >
+              + Add {KIND_TABS.find((t) => t.key === kind)?.label.replace(/s$/, '')}
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -641,9 +718,13 @@ export default function AssetsPage() {
               {c.name} <span className="font-normal text-gray-400">({c.items.length})</span>
             </h3>
             <div className="flex flex-wrap gap-2">
-              {c.items.map((item) => (
-                <ImageCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
-              ))}
+              {c.items.map((item) =>
+                kind === 'video' ? (
+                  <VideoCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
+                ) : (
+                  <ImageCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
+                ),
+              )}
             </div>
           </section>
         ),

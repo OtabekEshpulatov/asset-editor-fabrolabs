@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { apiV4, type BackgroundEditable, type BgZone } from '../api';
 
 // Preset colours for the well-known zone names; everything else falls back to a
@@ -65,6 +65,8 @@ type Drag = { kind: 'vertex'; zone: number; vertex: number };
 
 export default function BackgroundEditorPage() {
   const { slug = '' } = useParams();
+  // Same editor serves /backgrounds/:slug and /videos/:slug.
+  const isVideo = useLocation().pathname.startsWith('/videos/');
   const [data, setData] = useState<BackgroundEditable | null>(null);
   const [original, setOriginal] = useState<BackgroundEditable | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -96,8 +98,7 @@ export default function BackgroundEditorPage() {
     setSelected(null);
     setDrawing(false);
     setDraft([]);
-    apiV4
-      .getBackground(slug)
+    (isVideo ? apiV4.getVideo(slug) : apiV4.getBackground(slug))
       .then((d) => {
         if (!alive) return;
         const dd = withUids(d);
@@ -110,7 +111,7 @@ export default function BackgroundEditorPage() {
     return () => {
       alive = false;
     };
-  }, [slug]);
+  }, [slug, isVideo]);
 
   const pctFromEvent = (e: { clientX: number; clientY: number }) => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -349,11 +350,14 @@ export default function BackgroundEditorPage() {
     setSaving(true);
     setError(null);
     try {
-      const updated = await apiV4.saveBackground(data.slug, {
+      const body = {
         scene_type: data.scene_type,
         description: data.description,
         zones: data.zones,
-      });
+      };
+      const updated = isVideo
+        ? await apiV4.saveVideo(data.slug, body)
+        : await apiV4.saveBackground(data.slug, body);
       const dd = withUids(updated);
       setData(dd);
       setOriginal(dd);
@@ -423,7 +427,8 @@ export default function BackgroundEditorPage() {
                 const enabled = e.target.checked;
                 setData((prev) => (prev ? { ...prev, enabled } : prev));
                 try {
-                  await apiV4.setAssetConfig('background', data.slug, { enabled });
+                  if (isVideo) await apiV4.saveVideo(data.slug, { enabled });
+                  else await apiV4.setAssetConfig('background', data.slug, { enabled });
                 } catch {
                   setData((prev) => (prev ? { ...prev, enabled: !enabled } : prev));
                 }
@@ -475,14 +480,24 @@ export default function BackgroundEditorPage() {
           className="relative w-full select-none overflow-hidden rounded-lg border border-gray-300 bg-gray-100"
           style={{ aspectRatio: '16 / 9', touchAction: 'none', cursor: drawing ? 'crosshair' : 'default' }}
         >
-          {data.url && (
-            <img
-              src={data.url}
-              alt={data.slug}
-              draggable={false}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-          )}
+          {data.url &&
+            (data.is_video ? (
+              <video
+                src={data.url}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : (
+              <img
+                src={data.url}
+                alt={data.slug}
+                draggable={false}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ))}
 
           {/* polygon zones */}
           <svg

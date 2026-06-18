@@ -115,22 +115,30 @@ def download_bytes(key: str) -> bytes | None:
         raise
 
 
-def stream_object(key: str):
-    """Return (body_stream, content_type, content_length) for the storage proxy,
-    or None if the object does not exist. Body is a streaming file-like object.
+def stream_object(key: str, *, byte_range: str | None = None):
+    """Return a dict describing the object stream for the storage proxy, or None
+    if it does not exist.
+
+    Pass an HTTP ``Range`` header value (e.g. ``"bytes=0-1023"``) to fetch a
+    partial object — required for <video> seeking/streaming of large mp4s. When a
+    range is served, ``content_range`` is set and the caller should reply 206.
     """
+    kwargs: dict = {"Bucket": _bucket(), "Key": key}
+    if byte_range:
+        kwargs["Range"] = byte_range
     try:
-        resp = get_s3_client().get_object(Bucket=_bucket(), Key=key)
+        resp = get_s3_client().get_object(**kwargs)
     except ClientError as exc:
         code = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
         if code in (403, 404):
             return None
         raise
-    return (
-        resp["Body"],
-        resp.get("ContentType") or "application/octet-stream",
-        resp.get("ContentLength"),
-    )
+    return {
+        "body": resp["Body"],
+        "content_type": resp.get("ContentType") or "application/octet-stream",
+        "content_length": resp.get("ContentLength"),
+        "content_range": resp.get("ContentRange"),  # set only when Range was honored
+    }
 
 
 def list_objects(prefix: str) -> list[str]:

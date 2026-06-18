@@ -57,6 +57,7 @@ export default function App() {
         <Routes>
           <Route path="/assets" element={<AssetsPage />} />
           <Route path="/backgrounds/:slug" element={<BackgroundEditorPage />} />
+          <Route path="/videos/:slug" element={<BackgroundEditorPage />} />
           <Route path="*" element={<Navigate to="/assets" replace />} />
         </Routes>
       </main>
