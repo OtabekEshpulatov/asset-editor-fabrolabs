@@ -21,6 +21,10 @@ services:
       - "0.0.0.0:${ASSET_EDITOR_PORT:-7777}:8000"
     volumes:
       - asset_editor_data:/data
+    extra_hosts:
+      # Reach MinIO published on the dev-station host's :9000 from inside the
+      # container via http://host.docker.internal:9000 (host-gateway on Linux).
+      - "host.docker.internal:host-gateway"
     deploy:
       resources:
         limits:
