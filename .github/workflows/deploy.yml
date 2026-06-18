@@ -75,9 +75,9 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          script_stop: true
           envs: IMAGE_TAG,GHCR_PAT,GHCR_USER,MINIO_ENDPOINT_URL,MINIO_ACCESS_KEY,MINIO_SECRET_KEY,MINIO_BUCKET,ASSET_EDITOR_PORT
           script: |
+            set -e
             # Sync the server checkout BEFORE running deploy.sh: a git reset
             # inside the script would rewrite the file bash is executing mid-run.
             cd ${{ vars.ASSET_EDITOR_DIR || '/opt/asset-editor' }}
