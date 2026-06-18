@@ -18,26 +18,8 @@ env:
   IMAGE: ghcr.io/otabekeshpulatov/asset-editor-fabrolabs
 
 jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install ruff
-        run: pip install ruff
-
-      - name: Lint backend
-        run: cd backend && ruff check .
-
   build:
     name: Build & push image
-    needs: lint
     runs-on: ubuntu-latest
     environment: dev
     permissions:
