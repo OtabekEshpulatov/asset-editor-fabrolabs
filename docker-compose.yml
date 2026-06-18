@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    image: asset-editor:latest
+    environment:
+      ASSET_EDITOR_DATA_DIR: /data
+      # Storage is auto-connected from these (no in-app connection step).
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL:-http://host.docker.internal:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-fairytale-assets}
+    volumes:
+      - asset-editor-data:/data
+    ports:
+      - "${ASSET_EDITOR_PORT:-8080}:8000"
+    # Lets the container reach a MinIO running on the host via
+    # http://host.docker.internal:9000 (Docker Desktop; mapping added for Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  asset-editor-data:

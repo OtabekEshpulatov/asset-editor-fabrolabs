@@ -1,0 +1,30 @@
+# Server-side compose for the dev VPS (used by scripts/deploy.sh over SSH).
+# Pulls the prebuilt image from GHCR — it does NOT build on the server.
+# For LOCAL development use docker-compose.yml (build: .) instead.
+#
+# Moved here from ai-story-gen/docker-compose.staging.yml when the asset-editor
+# became its own repo. Same service shape: published on :7777, data persisted
+# in a named volume, storage auto-connected from MINIO_* env.
+services:
+  asset-editor:
+    image: ghcr.io/otabekeshpulatov/asset-editor-fabrolabs:${IMAGE_TAG:-dev}
+    container_name: fairytale-asset-editor
+    restart: unless-stopped
+    environment:
+      ASSET_EDITOR_DATA_DIR: /data
+      # Storage auto-connects from these at startup (no in-app connect step).
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL:-}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-}
+      MINIO_BUCKET: ${MINIO_BUCKET:-fairytale-assets}
+    ports:
+      - "0.0.0.0:${ASSET_EDITOR_PORT:-7777}:8000"
+    volumes:
+      - asset_editor_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  asset_editor_data:

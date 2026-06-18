@@ -1,0 +1,73 @@
+{
+  "object": {
+    "added": [],
+    "renames": {},
+    "config": {}
+  },
+  "background": {
+    "added": [],
+    "renames": {},
+    "config": {}
+  },
+  "character": {
+    "added": [],
+    "renames": {},
+    "config": {
+      "crow": {
+        "description": "",
+        "enabled": true
+      }
+    },
+    "actions": {
+      "flamingo": {
+        "added": [],
+        "renames": {},
+        "config": {
+          "idle": {
+            "description": "",
+            "fps": 30,
+            "frame_count": 25
+          }
+        }
+      },
+      "girl_teen_black": {
+        "added": [],
+        "renames": {},
+        "config": {
+          "wave": {
+            "description": "",
+            "fps": 5,
+            "frame_count": 25
+          }
+        }
+      },
+      "eagle": {
+        "added": [],
+        "renames": {},
+        "config": {
+          "happy": {
+            "enabled": false
+          },
+          "idle": {
+            "enabled": false
+          },
+          "move": {
+            "enabled": false
+          }
+        }
+      },
+      "crow": {
+        "added": [],
+        "renames": {},
+        "config": {
+          "happy": {
+            "enabled": true
+          },
+          "idle": {
+            "enabled": true
+          }
+        }
+      }
+    }
+  }
+}
