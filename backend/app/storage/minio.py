@@ -159,6 +159,16 @@ def upload_bytes(data: bytes, *, key: str, content_type: str) -> str:
     return public_url_for_key(key)
 
 
+def copy_object(src_key: str, dst_key: str) -> str:
+    """Server-side copy within the bucket (no data round-trips through the app)."""
+    bucket = _bucket()
+    _with_s3_retries(lambda: get_s3_client().copy_object(
+        Bucket=bucket, Key=dst_key, CopySource={"Bucket": bucket, "Key": src_key},
+    ))
+    log.debug("copied key=%s -> %s", src_key, dst_key)
+    return public_url_for_key(dst_key)
+
+
 def delete_object(key: str) -> None:
     _with_s3_retries(lambda: get_s3_client().delete_object(Bucket=_bucket(), Key=key))
     log.debug("deleted key=%s", key)

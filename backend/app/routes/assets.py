@@ -303,6 +303,8 @@ class AssetRename(BaseModel):
 @router.post("/assets/rename")
 async def rename_asset(body: AssetRename) -> dict:
     try:
+        if body.kind == "video":
+            return videos.rename(body.old_slug, body.new_slug)
         return asset_admin.rename(kind=body.kind, old_slug=body.old_slug, new_slug=body.new_slug)
     except (KeyError, ValueError) as exc:
         raise _admin_error(exc)
@@ -322,6 +324,8 @@ async def config_view(slug: str, kind: AssetKind = "character", action: str | No
     Pass `action` for a sprite action (kind is then treated as character).
     """
     try:
+        if kind == "video":
+            return videos.config_view(slug)
         return asset_admin.get_config_view(kind=kind, slug=slug, action=action)
     except (KeyError, ValueError) as exc:
         raise _admin_error(exc)

@@ -330,8 +330,6 @@ function Lightbox({
               </button>
               {renameError && <span className="text-xs text-red-600">{renameError}</span>}
             </div>
-          ) : isVideo ? (
-            <span className="font-mono text-sm text-gray-800">{item.slug}</span>
           ) : (
             <button
               onClick={() => setRenaming(true)}
@@ -481,7 +479,7 @@ function Lightbox({
             <span className="text-xs text-gray-400">edit description in the zone editor</span>
           )}
           {cfgError && <span className="text-xs text-red-600">{cfgError}</span>}
-          {!isVideo && <ConfigViewer kind={kind} slug={item.slug} />}
+          <ConfigViewer kind={kind} slug={item.slug} />
         </div>
       </div>
     </div>
