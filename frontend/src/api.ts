@@ -111,6 +111,45 @@ export interface VideoUpdate {
   zones?: BgZone[];
 }
 
+// --- live-bg OBJECT editor (drag the moving objects, then re-render) ---------
+// Mirrors story-gen-exps backend _mover_view. x/y/x0/x1 are % of the frame; `w` is
+// px at a 1280-px render baseline (the backend keys the cutout on it) and `w_pct`
+// is its on-canvas display width (= w / 1280 * 100).
+export interface Mover {
+  index: number;
+  id: string;
+  kind: string;                 // float | pulse | peek | patrol | swim | fall | bubbles
+  x: number | null;
+  y: number | null;
+  w: number;
+  w_pct: number;
+  flip: boolean;
+  to_left: boolean;
+  x0: number | null;            // swim flight band start % (null = full off-screen cross)
+  x1: number | null;
+  positionable: boolean;        // float/pulse/peek/patrol — draggable x,y
+  has_y: boolean;               // positionable OR swim
+  cutout_url: string | null;    // null for fall/bubbles (full-frame) or if no preview shipped
+}
+
+export interface MoverEdit {
+  index: number;
+  x?: number;
+  y?: number;
+  w?: number;
+  flip?: boolean;
+  x0?: number;
+  x1?: number;
+}
+
+export interface VideoMovers {
+  slug: string;
+  video_url: string;
+  loop_s: number;
+  water: string | null;
+  movers: Mover[];
+}
+
 // --- asset API (prefix matches the backend router: /api/v4) ------------------
 
 const client = axios.create({ baseURL: '/api/v4' });
@@ -151,6 +190,15 @@ export const apiV4 = {
 
   saveVideo: (slug: string, body: VideoUpdate) =>
     client.put<BackgroundEditable>(`/videos/${encodeURIComponent(slug)}`, body).then((r) => r.data),
+
+  // Live-bg moving objects: load draggable positions, save -> backend re-renders the mp4.
+  getVideoMovers: (slug: string) =>
+    client.get<VideoMovers>(`/videos/${encodeURIComponent(slug)}/movers`).then((r) => r.data),
+
+  saveVideoMovers: (slug: string, movers: MoverEdit[]) =>
+    client
+      .post<{ ok: boolean; video_url: string }>(`/videos/${encodeURIComponent(slug)}/movers`, { movers })
+      .then((r) => r.data),
 
   addObject: (form: FormData) => client.post('/assets/objects', form).then((r) => r.data),
   addBackground: (form: FormData) => client.post('/assets/backgrounds', form).then((r) => r.data),

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from app import asset_admin, backgrounds, connection, videos
 from app.asset_urls import _spritesheet_url, resolve_asset_url
+from app.livebg import service as livebg_service
 from app.catalog import catalog, overrides
 from app.catalog.static_asset_catalog import (
     BACKGROUND_CATEGORIES,
@@ -237,6 +238,50 @@ async def update_video(slug: str, body: VideoUpdate) -> dict:
         raise HTTPException(status_code=404, detail=f"no video {slug!r}")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+# --- live (mp4) background OBJECT editor (drag moving objects + re-render) ----
+
+class MoverEditIn(BaseModel):
+    index: int
+    x: float | None = None
+    y: float | None = None
+    w: int | None = None
+    flip: bool | None = None
+    x0: float | None = None
+    x1: float | None = None
+
+
+class MoversUpdate(BaseModel):
+    movers: list[MoverEditIn]
+
+
+@router.get("/videos/{slug}/movers")
+async def get_video_movers(slug: str) -> dict:
+    """Draggable moving-object view for one live background (needs a source bundle)."""
+    try:
+        return livebg_service.get_movers(slug)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no video {slug!r}")
+    except livebg_service.NotEditable:
+        raise HTTPException(status_code=409, detail=f"video {slug!r} has no editable source bundle")
+
+
+@router.post("/videos/{slug}/movers")
+async def save_video_movers(slug: str, body: MoversUpdate) -> dict:
+    """Apply object-position edits, re-render the mp4 (no LLM) and upload it back."""
+    edits = [e.model_dump(exclude_unset=True) for e in body.movers]
+    try:
+        return await livebg_service.save_movers(slug, edits)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no video {slug!r}")
+    except livebg_service.NotEditable:
+        raise HTTPException(status_code=409, detail=f"video {slug!r} has no editable source bundle")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=f"incomplete source bundle: {exc}")
+    except Exception as exc:  # noqa: BLE001 — surface render/ffmpeg failures
+        log.exception("livebg re-render failed for %s", slug)
+        raise HTTPException(status_code=500, detail=f"re-render failed: {exc}")
 
 
 # --- asset management: add new / rename existing -----------------------------

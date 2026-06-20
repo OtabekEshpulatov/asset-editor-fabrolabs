@@ -281,6 +281,17 @@ def rename(old_slug: str, new_slug: str) -> dict[str, Any]:
         except Exception as exc:
             log.warning("videos: sidecar rename failed for %s: %r", old_slug, exc)
 
+    # editable object-editor source bundle (best-effort): move every object under
+    # {stem}.source/ so the renamed video stays object-editable.
+    old_pref = old_key.rsplit(".", 1)[0] + ".source/"
+    new_pref = new_key.rsplit(".", 1)[0] + ".source/"
+    try:
+        for obj_key in minio.list_objects(old_pref):
+            minio.copy_object(obj_key, new_pref + obj_key[len(old_pref):])
+            minio.delete_object(obj_key)
+    except Exception as exc:
+        log.warning("videos: source-bundle rename failed for %s: %r", old_slug, exc)
+
     # manifest: re-key the entry so zones follow the new slug.
     doc = _read_manifest()
     if old_slug in doc:

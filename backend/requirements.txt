@@ -4,3 +4,9 @@ pydantic>=2.9
 boto3>=1.35
 python-multipart>=0.0.20
 Pillow>=10
+# livebg object editor — re-render a live-bg video after dragging its objects.
+# numpy: chroma-key + water FX. rlottie-python: vector overlay rasteriser (bundles
+# the native librlottie .so). ffmpeg is a SYSTEM package (see Dockerfile). No LLM/
+# image-gen deps — re-rendering an existing scene needs no API key.
+numpy>=1.26
+rlottie-python>=1.3

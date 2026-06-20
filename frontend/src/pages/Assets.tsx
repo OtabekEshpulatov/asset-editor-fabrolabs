@@ -351,7 +351,7 @@ function Lightbox({
                 to={`/${isVideo ? 'videos' : 'backgrounds'}/${encodeURIComponent(item.slug)}`}
                 className="text-blue-600 hover:underline"
               >
-                Edit zones →
+                {isVideo ? 'Edit zones & objects →' : 'Edit zones →'}
               </Link>
             )}
             {rawUrl && (

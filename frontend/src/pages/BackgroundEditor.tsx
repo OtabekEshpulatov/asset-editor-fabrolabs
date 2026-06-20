@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { apiV4, type BackgroundEditable, type BgZone } from '../api';
+import ObjectLayerEditor from '../components/ObjectLayerEditor';
 
 // Preset colours for the well-known zone names; everything else falls back to a
 // hex palette (hex so it's valid for <input type="color"> and SVG fill-opacity).
@@ -77,6 +78,8 @@ export default function BackgroundEditorPage() {
   const [selected, setSelected] = useState<number | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [draft, setDraft] = useState<number[][]>([]);
+  // Live (mp4) backgrounds get a second mode that edits the moving objects.
+  const [mode, setMode] = useState<'zones' | 'objects'>('zones');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -98,6 +101,7 @@ export default function BackgroundEditorPage() {
     setSelected(null);
     setDrawing(false);
     setDraft([]);
+    setMode('zones');
     (isVideo ? apiV4.getVideo(slug) : apiV4.getBackground(slug))
       .then((d) => {
         if (!alive) return;
@@ -416,6 +420,22 @@ export default function BackgroundEditorPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isVideo && (
+            <div className="mr-1 inline-flex rounded border border-gray-300 p-0.5 text-sm">
+              <button
+                onClick={() => setMode('zones')}
+                className={mode === 'zones' ? 'rounded bg-blue-600 px-3 py-1 text-white' : 'px-3 py-1 text-gray-600'}
+              >
+                Zones
+              </button>
+              <button
+                onClick={() => setMode('objects')}
+                className={mode === 'objects' ? 'rounded bg-blue-600 px-3 py-1 text-white' : 'px-3 py-1 text-gray-600'}
+              >
+                Objects
+              </button>
+            </div>
+          )}
           <label className="flex items-center gap-1 text-sm text-gray-600" title="Disabled backgrounds are hidden everywhere">
             <input
               type="checkbox"
@@ -433,43 +453,50 @@ export default function BackgroundEditorPage() {
             />
             enabled
           </label>
-          {savedAt && <span className="text-sm text-green-600">Saved ✓</span>}
-          {dirty && <span className="text-sm text-amber-600">Unsaved changes</span>}
-          <button
-            onClick={undo}
-            disabled={!canUndo}
-            title="Undo edits to the selected zone (⌘/Ctrl+Z)"
-            className="rounded border border-gray-300 px-2 py-1.5 text-sm text-gray-600 disabled:opacity-40 hover:bg-gray-50"
-          >
-            ⤺
-          </button>
-          <button
-            onClick={redo}
-            disabled={!canRedo}
-            title="Redo (⌘/Ctrl+Shift+Z)"
-            className="rounded border border-gray-300 px-2 py-1.5 text-sm text-gray-600 disabled:opacity-40 hover:bg-gray-50"
-          >
-            ⤻
-          </button>
-          <button
-            onClick={reset}
-            disabled={!dirty || saving}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-600 disabled:opacity-40 hover:bg-gray-50"
-          >
-            Reset
-          </button>
-          <button
-            onClick={save}
-            disabled={!dirty || saving}
-            className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40 hover:bg-blue-700"
-          >
-            {saving ? 'Saving…' : 'Save to manifest'}
-          </button>
+          {mode === 'zones' && (
+            <>
+              {savedAt && <span className="text-sm text-green-600">Saved ✓</span>}
+              {dirty && <span className="text-sm text-amber-600">Unsaved changes</span>}
+              <button
+                onClick={undo}
+                disabled={!canUndo}
+                title="Undo edits to the selected zone (⌘/Ctrl+Z)"
+                className="rounded border border-gray-300 px-2 py-1.5 text-sm text-gray-600 disabled:opacity-40 hover:bg-gray-50"
+              >
+                ⤺
+              </button>
+              <button
+                onClick={redo}
+                disabled={!canRedo}
+                title="Redo (⌘/Ctrl+Shift+Z)"
+                className="rounded border border-gray-300 px-2 py-1.5 text-sm text-gray-600 disabled:opacity-40 hover:bg-gray-50"
+              >
+                ⤻
+              </button>
+              <button
+                onClick={reset}
+                disabled={!dirty || saving}
+                className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-600 disabled:opacity-40 hover:bg-gray-50"
+              >
+                Reset
+              </button>
+              <button
+                onClick={save}
+                disabled={!dirty || saving}
+                className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40 hover:bg-blue-700"
+              >
+                {saving ? 'Saving…' : 'Save to manifest'}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {error && <div className="text-sm text-red-600">{error}</div>}
 
+      {isVideo && mode === 'objects' ? (
+        <ObjectLayerEditor slug={data.slug} videoUrl={data.url} />
+      ) : (
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
         {/* Canvas with overlays */}
         <div
@@ -737,6 +764,7 @@ export default function BackgroundEditorPage() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
