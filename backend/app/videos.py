@@ -19,7 +19,7 @@ from app import config
 from app.backgrounds import (
     ALLOWED_SURFACES,
     ALLOWED_ZONE_NAMES,
-    _clamp_pct,
+    _build_zones,
     _clampf,
     _default_surface,
     _num,
@@ -143,20 +143,17 @@ def editable_entry_for_slug(slug: str) -> dict[str, Any] | None:
                    if isinstance(p, (list, tuple)) and len(p) >= 2]
         zones.append({
             "name": str(name),
-            "y_start_pct": ys,
-            "y_end_pct": ye,
             "description": str(zone.get("description") or ""),
             "polygon": polygon,
             "surface": str(zone.get("surface") or _default_surface(str(name))),
             "color": zone.get("color"),
         })
-    zones.sort(key=lambda z: z["y_start_pct"])
+    zones.sort(key=lambda z: min((p[1] for p in z["polygon"]), default=0))
     return {
         "slug": slug,
         "manifest_key": key,
         "url": video_url(slug),
         "is_video": True,
-        "scene_type": str(entry.get("scene_type") or ""),
         "description": str(entry.get("description") or ""),
         "resolution": {
             "width": int(res.get("width") or _DEFAULT_RESOLUTION["width"]),
@@ -180,12 +177,11 @@ def save_entry_for_slug(slug: str, payload: dict[str, Any]) -> dict[str, Any]:
     entry = doc.get(slug)
     entry = dict(entry) if isinstance(entry, dict) else {}
     res = entry.get("resolution") if isinstance(entry.get("resolution"), dict) else {}
-    width = int(res.get("width") or _DEFAULT_RESOLUTION["width"])
-    height = int(res.get("height") or _DEFAULT_RESOLUTION["height"])
-    entry.setdefault("resolution", {"width": width, "height": height})
+    entry.setdefault("resolution", {
+        "width": int(res.get("width") or _DEFAULT_RESOLUTION["width"]),
+        "height": int(res.get("height") or _DEFAULT_RESOLUTION["height"]),
+    })
 
-    if payload.get("scene_type") is not None:
-        entry["scene_type"] = str(payload["scene_type"])
     if payload.get("description") is not None:
         entry["description"] = str(payload["description"])
     if payload.get("enabled") is not None:
@@ -193,51 +189,8 @@ def save_entry_for_slug(slug: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     zones_in = payload.get("zones")
     if isinstance(zones_in, list):
-        new_zones: dict[str, dict[str, Any]] = {}
-        for z in zones_in:
-            if not isinstance(z, dict):
-                continue
-            name = str(z.get("name") or "").strip()
-            if not name:
-                raise ValueError("zone name must not be empty")
-            if name in new_zones:
-                raise ValueError(f"duplicate zone {name!r}")
-
-            poly_in = z.get("polygon")
-            polygon: list[list[float]] | None = None
-            if isinstance(poly_in, list):
-                pts = [[round(_clampf(p[0]), 2), round(_clampf(p[1]), 2)]
-                       for p in poly_in if isinstance(p, (list, tuple)) and len(p) >= 2]
-                if len(pts) >= 3:
-                    polygon = pts
-            if polygon:
-                ys = int(round(min(p[1] for p in polygon)))
-                ye = int(round(max(p[1] for p in polygon)))
-            else:
-                ys = _clamp_pct(z.get("y_start_pct"))
-                ye = _clamp_pct(z.get("y_end_pct"))
-                if ye < ys:
-                    ys, ye = ye, ys
-
-            surface = str(z.get("surface") or _default_surface(name))
-            if surface not in ALLOWED_SURFACES:
-                surface = "none"
-
-            zone_doc: dict[str, Any] = {
-                "y_start_pct": ys,
-                "y_end_pct": ye,
-                "y_start_px": round(ys / 100 * height),
-                "y_end_px": round(ye / 100 * height),
-                "height_pct": ye - ys,
-                "surface": surface,
-                "description": str(z.get("description") or ""),
-            }
-            if polygon:
-                zone_doc["polygon"] = polygon
-            if z.get("color"):
-                zone_doc["color"] = str(z.get("color"))
-            new_zones[name] = zone_doc
-        entry["zones"] = new_zones
+        entry["zones"] = _build_zones(zones_in)
+    entry.pop("scene_type", None)  # converge on the lean schema
 
     doc[slug] = entry
     _write_manifest(doc)

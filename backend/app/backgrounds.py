@@ -161,12 +161,8 @@ def compact_context_for_slug(slug: str) -> dict[str, Any] | None:
     return {
         "slug": slug,
         "manifest_key": key,
-        "scene_type": entry.get("scene_type"),
         "description": entry.get("description"),
         "zones": _compact_zones(entry.get("zones")),
-        "placement_zones": _compact_placement_zones(entry.get("zones")),
-        "character_placement": _compact_placement(entry.get("character_placement")),
-        "object_placement": _compact_placement(entry.get("object_placement")),
     }
 
 
@@ -301,8 +297,11 @@ def _compact_zones(zones: Any) -> dict[str, dict[str, Any]]:
     for name, zone in zones.items():
         if not isinstance(zone, dict):
             continue
+        poly = zone.get("polygon") or []
+        ys = [p[1] for p in poly if isinstance(p, (list, tuple)) and len(p) >= 2]
         out[str(name)] = {
-            "y_pct": [zone.get("y_start_pct"), zone.get("y_end_pct")],
+            "y_pct": [round(min(ys), 1), round(max(ys), 1)] if ys else None,
+            "surface": zone.get("surface"),
             "description": _trim_text(str(zone.get("description") or ""), 180),
         }
     return out
@@ -371,48 +370,18 @@ def editable_entry_for_slug(slug: str) -> dict[str, Any] | None:
         zones.append(
             {
                 "name": str(name),
-                "y_start_pct": ys,
-                "y_end_pct": ye,
                 "description": str(zone.get("description") or ""),
                 "polygon": polygon,
                 "surface": str(zone.get("surface") or _default_surface(str(name))),
                 "color": zone.get("color"),
             }
         )
-    # Fold the legacy fixed placement rectangles into ordinary (deletable) zones,
-    # so the editor has a single uniform model: N named polygon zones, nothing pinned.
-    taken = {z["name"] for z in zones}
-    for box_key, base, surf, default_desc in (
-        ("character_placement", "walkable", "floor", "where characters stand / walk"),
-        ("object_placement", "object_area", "floor", "where props can be placed"),
-    ):
-        box = entry.get(box_key)
-        if not isinstance(box, dict):
-            continue
-        name = base
-        n = 1
-        while name in taken:
-            name = f"{base}_{n}"
-            n += 1
-        taken.add(name)
-        x0, x1 = _clampf(box.get("x_min_pct")), _clampf(box.get("x_max_pct"))
-        y0, y1 = _clampf(box.get("y_min_pct")), _clampf(box.get("y_max_pct"))
-        zones.append(
-            {
-                "name": name,
-                "y_start_pct": y0,
-                "y_end_pct": y1,
-                "description": str(box.get("note") or default_desc),
-                "polygon": [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
-                "surface": surf,
-            }
-        )
-    zones.sort(key=lambda z: z["y_start_pct"])
+    # Sort top-to-bottom by the polygon's highest point (no stored y-band anymore).
+    zones.sort(key=lambda z: min((p[1] for p in z["polygon"]), default=0))
     return {
         "slug": slug,
         "manifest_key": key,
         "url": catalog.get_background_url(slug),
-        "scene_type": str(entry.get("scene_type") or ""),
         "description": str(entry.get("description") or ""),
         "resolution": {
             "width": int(res.get("width") or _DEFAULT_RESOLUTION["width"]),
@@ -436,12 +405,58 @@ def _editable_placement(placement: Any) -> dict[str, Any]:
     }
 
 
+def _build_zones(zones_in: list[Any]) -> dict[str, dict[str, Any]]:
+    """Validate + normalize editor zones into the lean stored shape:
+    ``{name: {polygon, surface, description, color?}}``. Polygon is the source of
+    truth (a legacy y-band is migrated to a full-width rectangle)."""
+    new_zones: dict[str, dict[str, Any]] = {}
+    for z in zones_in:
+        if not isinstance(z, dict):
+            continue
+        name = str(z.get("name") or "").strip()
+        if not name:
+            raise ValueError("zone name must not be empty")
+        if name in new_zones:
+            raise ValueError(f"duplicate zone {name!r}")
+
+        poly_in = z.get("polygon")
+        polygon: list[list[float]] | None = None
+        if isinstance(poly_in, list):
+            pts = [[round(_clampf(p[0]), 2), round(_clampf(p[1]), 2)]
+                   for p in poly_in if isinstance(p, (list, tuple)) and len(p) >= 2]
+            if len(pts) >= 3:
+                polygon = pts
+        if polygon is None:
+            ys = _clamp_pct(z.get("y_start_pct"))
+            ye = _clamp_pct(z.get("y_end_pct"))
+            if ye < ys:
+                ys, ye = ye, ys
+            polygon = [[0.0, float(ys)], [100.0, float(ys)], [100.0, float(ye)], [0.0, float(ye)]]
+
+        surface = str(z.get("surface") or _default_surface(name))
+        if surface not in ALLOWED_SURFACES:
+            surface = "none"
+
+        zone_doc: dict[str, Any] = {
+            "polygon": polygon,
+            "surface": surface,
+            "description": str(z.get("description") or ""),
+        }
+        if z.get("color"):
+            zone_doc["color"] = str(z.get("color"))
+        new_zones[name] = zone_doc
+    return new_zones
+
+
 def save_entry_for_slug(slug: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Apply editor changes to one entry and write the manifest back to disk.
 
+    Lean schema: each zone is just ``polygon`` (the authoritative shape) +
+    ``surface`` + ``description`` (+ optional ``color``). The derived y-band /
+    pixel fields, ``scene_type`` and the legacy placement rectangles are dropped.
+
     Raises KeyError if the slug has no manifest entry, ValueError on invalid
-    zone names / duplicates. Derived pixel fields and `height_pct` are
-    recomputed from the percentages so the file stays internally consistent.
+    zone names / duplicates.
     """
     key = manifest_key_for_slug(slug)
     if key is None:
@@ -452,75 +467,16 @@ def save_entry_for_slug(slug: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(entry, dict):
         raise KeyError(slug)
 
-    res = entry.get("resolution") if isinstance(entry.get("resolution"), dict) else {}
-    width = int(res.get("width") or _DEFAULT_RESOLUTION["width"])
-    height = int(res.get("height") or _DEFAULT_RESOLUTION["height"])
-
-    if payload.get("scene_type") is not None:
-        entry["scene_type"] = str(payload["scene_type"])
     if payload.get("description") is not None:
         entry["description"] = str(payload["description"])
 
     zones_in = payload.get("zones")
     if isinstance(zones_in, list):
-        new_zones: dict[str, dict[str, Any]] = {}
-        for z in zones_in:
-            if not isinstance(z, dict):
-                continue
-            name = str(z.get("name") or "").strip()
-            if not name:
-                raise ValueError("zone name must not be empty")
-            if name in new_zones:
-                raise ValueError(f"duplicate zone {name!r}")
+        entry["zones"] = _build_zones(zones_in)
 
-            # Polygon (if present) is authoritative; derive the y-band from it so
-            # band-based consumers keep working. Else fall back to the y fields.
-            poly_in = z.get("polygon")
-            polygon: list[list[float]] | None = None
-            if isinstance(poly_in, list):
-                pts = [[round(_clampf(p[0]), 2), round(_clampf(p[1]), 2)]
-                       for p in poly_in if isinstance(p, (list, tuple)) and len(p) >= 2]
-                if len(pts) >= 3:
-                    polygon = pts
-            if polygon:
-                ys = int(round(min(p[1] for p in polygon)))
-                ye = int(round(max(p[1] for p in polygon)))
-            else:
-                ys = _clamp_pct(z.get("y_start_pct"))
-                ye = _clamp_pct(z.get("y_end_pct"))
-                if ye < ys:
-                    ys, ye = ye, ys
-
-            surface = str(z.get("surface") or _default_surface(name))
-            if surface not in ALLOWED_SURFACES:
-                surface = "none"
-
-            zone_doc: dict[str, Any] = {
-                "y_start_pct": ys,
-                "y_end_pct": ye,
-                "y_start_px": round(ys / 100 * height),
-                "y_end_px": round(ye / 100 * height),
-                "height_pct": ye - ys,
-                "surface": surface,
-                "description": str(z.get("description") or ""),
-            }
-            if polygon:
-                zone_doc["polygon"] = polygon
-            color = z.get("color")
-            if color:
-                zone_doc["color"] = str(color)
-            new_zones[name] = zone_doc
-        entry["zones"] = new_zones
-
-    # Placement boxes are deprecated — they now live as ordinary zones. Update
-    # them only if a legacy client still sends a dict; otherwise drop them so the
-    # manifest converges on the uniform zones-only model.
-    for box_key in ("character_placement", "object_placement"):
-        val = payload.get(box_key)
-        if isinstance(val, dict):
-            entry[box_key] = _placement_to_manifest(val, entry.get(box_key), width, height)
-        else:
-            entry.pop(box_key, None)
+    # Converge on the lean schema: strip deprecated fields if present.
+    for dead in ("scene_type", "character_placement", "object_placement"):
+        entry.pop(dead, None)
 
     raw[key] = entry
     json_store.write_json(raw, key=MANIFEST_OBJECT_KEY, local_path=MANIFEST_PATH, dumps=_dump_manifest)
@@ -602,52 +558,36 @@ def create_manifest_entry(
     *,
     category: str,
     slug: str,
-    scene_type: str = "",
+    scene_type: str = "",  # accepted for caller compatibility; no longer stored
     description: str = "",
     width: int = 1920,
     height: int = 1080,
 ) -> str:
     """Seed a default manifest entry for a newly-added background.
 
-    Returns the manifest key. Default zones are a generic sky/ground split the
-    user can refine in the zone editor. No-op-safe: if the key already exists it
-    is left untouched.
+    Returns the manifest key. Default zones are a generic sky/ground split (as
+    full-width polygons) the user can refine in the zone editor. No-op-safe: if
+    the key already exists it is left untouched.
     """
     key = f"{category}/{slug}.png"
     raw = _read_manifest_doc()
     if key in raw:
         return key
 
-    def _band(y0: int, y1: int, desc: str) -> dict[str, Any]:
+    def _zone(y0: float, y1: float, surface: str, desc: str) -> dict[str, Any]:
         return {
-            "y_start_pct": y0,
-            "y_end_pct": y1,
-            "y_start_px": round(y0 / 100 * height),
-            "y_end_px": round(y1 / 100 * height),
-            "height_pct": y1 - y0,
+            "polygon": [[0.0, y0], [100.0, y0], [100.0, y1], [0.0, y1]],
+            "surface": surface,
             "description": desc,
         }
 
     raw[key] = {
-        "scene_type": scene_type or "custom",
         "description": description,
         "resolution": {"width": width, "height": height},
         "zones": {
-            "sky": _band(0, 55, "Sky / upper area."),
-            "ground": _band(55, 100, "Ground surface where characters stand."),
+            "sky": _zone(0, 55, "sky", "Sky / upper area."),
+            "ground": _zone(55, 100, "floor", "Ground surface where characters stand."),
         },
-        "character_placement": _placement_to_manifest(
-            {"x_min_pct": 5, "x_max_pct": 95, "y_min_pct": 60, "y_max_pct": 95, "note": ""},
-            None,
-            width,
-            height,
-        ),
-        "object_placement": _placement_to_manifest(
-            {"x_min_pct": 0, "x_max_pct": 100, "y_min_pct": 60, "y_max_pct": 95, "note": ""},
-            None,
-            width,
-            height,
-        ),
     }
     json_store.write_json(raw, key=MANIFEST_OBJECT_KEY, local_path=MANIFEST_PATH, dumps=_dump_manifest)
     _write_background_sidecar(key, raw[key])

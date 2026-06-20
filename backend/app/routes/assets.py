@@ -154,34 +154,21 @@ async def asset_catalog(kind: AssetKind, include_disabled: bool = False) -> dict
 
 class BgZoneIn(BaseModel):
     name: str
-    y_start_pct: float
-    y_end_pct: float
-    description: str = ""
-    # Free-form polygon (normalized 0-100 [x, y] points). When present it is the
-    # authoritative shape; y_start/y_end are derived from its vertical extent so
-    # band-based consumers keep working. Absent => the zone is a full-width band.
+    # Free-form polygon (normalized 0-100 [x, y] points) — the authoritative shape.
     polygon: list[list[float]] | None = None
     # Placement surface this zone offers (matches object rest_surface vocabulary).
     surface: str | None = None
+    description: str = ""
     # Optional custom overlay colour (hex) for the editor.
     color: str | None = None
-
-
-class BgPlacementIn(BaseModel):
-    x_min_pct: float
-    x_max_pct: float
-    y_min_pct: float
-    y_max_pct: float
-    note: str | None = None
+    # Legacy y-band — still accepted (migrated to a full-width polygon) for old payloads.
+    y_start_pct: float | None = None
+    y_end_pct: float | None = None
 
 
 class BackgroundUpdate(BaseModel):
-    scene_type: str | None = None
     description: str | None = None
     zones: list[BgZoneIn]
-    # Deprecated — placements are now ordinary zones. Optional for old clients.
-    character_placement: BgPlacementIn | None = None
-    object_placement: BgPlacementIn | None = None
 
 
 @router.get("/backgrounds/{slug}")
@@ -219,7 +206,6 @@ async def rebuild_background_index() -> dict:
 # --- live (mp4) background zone editor --------------------------------------
 
 class VideoUpdate(BaseModel):
-    scene_type: str | None = None
     description: str | None = None
     enabled: bool | None = None
     # Optional: omit to save only config (enabled/description) without touching zones.

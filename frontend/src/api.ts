@@ -74,32 +74,21 @@ export interface AssetCatalog {
 
 export interface BgZone {
   name: string;
-  y_start_pct: number;
-  y_end_pct: number;
-  description: string;
-  // Normalized polygon [x_pct, y_pct] points (0-100). Authoritative shape.
+  // Normalized polygon [x_pct, y_pct] points (0-100). The authoritative shape.
   polygon?: number[][];
   // Placement surface this zone offers (object rest_surface vocabulary).
   surface?: string;
+  description: string;
   // Custom overlay colour (hex, e.g. "#22c55e"). Editor-only display aid.
   color?: string;
   // Client-only stable id for per-zone undo + React keys (backend ignores it).
   _uid?: number;
 }
 
-export interface BgPlacement {
-  x_min_pct: number;
-  x_max_pct: number;
-  y_min_pct: number;
-  y_max_pct: number;
-  note: string;
-}
-
 export interface BackgroundEditable {
   slug: string;
   manifest_key: string | null;
   url: string | null;
-  scene_type: string;
   description: string;
   resolution: { width: number; height: number };
   allowed_zone_names: string[];
@@ -111,14 +100,12 @@ export interface BackgroundEditable {
 }
 
 export interface BackgroundUpdate {
-  scene_type: string;
   description: string;
   zones: BgZone[];
 }
 
 // Live (mp4) background config — any subset; omit `zones` to save config only.
 export interface VideoUpdate {
-  scene_type?: string;
   description?: string;
   enabled?: boolean;
   zones?: BgZone[];

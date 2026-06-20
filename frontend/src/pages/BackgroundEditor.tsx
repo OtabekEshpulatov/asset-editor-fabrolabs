@@ -292,8 +292,6 @@ export default function BackgroundEditorPage() {
     const newZone: BgZone = {
       _uid: nextUid(),
       name,
-      y_start_pct: Math.min(...draft.map((p) => p[1])),
-      y_end_pct: Math.max(...draft.map((p) => p[1])),
       description: '',
       polygon: draft,
       surface: 'none',
@@ -351,7 +349,6 @@ export default function BackgroundEditorPage() {
     setError(null);
     try {
       const body = {
-        scene_type: data.scene_type,
         description: data.description,
         zones: data.zones,
       };
@@ -414,7 +411,7 @@ export default function BackgroundEditorPage() {
             Zone editor — <span className="font-mono text-base">{data.slug}</span>
           </h2>
           <p className="text-xs text-gray-500">
-            {data.scene_type} · {data.resolution.width}×{data.resolution.height} ·{' '}
+            {data.resolution.width}×{data.resolution.height} ·{' '}
             <span className="font-mono">{data.manifest_key}</span>
           </p>
         </div>
@@ -606,16 +603,6 @@ export default function BackgroundEditorPage() {
 
         {/* Control panel */}
         <div className="space-y-4 text-sm">
-          <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Scene type
-            </span>
-            <input
-              value={data.scene_type}
-              onChange={(e) => patch({ scene_type: e.target.value })}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1"
-            />
-          </label>
           <label className="block">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
               Description
