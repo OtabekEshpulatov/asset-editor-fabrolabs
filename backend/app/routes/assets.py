@@ -203,6 +203,13 @@ async def rebuild_background_index() -> dict:
     return {"entries": backgrounds.rebuild_index_from_sidecars()}
 
 
+@router.post("/backgrounds/normalize")
+async def normalize_backgrounds() -> dict:
+    """Strip legacy fields (scene_type, character/object_placement, y-band/px) from
+    every stored background, leaving the lean polygon-only zone schema."""
+    return {"normalized": backgrounds.normalize_all()}
+
+
 # --- live (mp4) background zone editor --------------------------------------
 
 class VideoUpdate(BaseModel):

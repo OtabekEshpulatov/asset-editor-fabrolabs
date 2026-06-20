@@ -536,6 +536,35 @@ def rebuild_index_from_sidecars() -> int:
     return len(index)
 
 
+def normalize_all() -> int:
+    """Rewrite every entry to the lean schema in one pass: keep description +
+    resolution + polygon zones; drop scene_type, the legacy placement rectangles,
+    and the derived y-band/pixel fields. Idempotent. Writes the manifest + every
+    per-background sidecar back to storage."""
+    raw = _read_manifest_doc()
+    count = 0
+    for key, entry in list(raw.items()):
+        if not isinstance(entry, dict):
+            continue
+        zones_src = entry.get("zones") if isinstance(entry.get("zones"), dict) else {}
+        zone_list = [{"name": name, **z} for name, z in zones_src.items() if isinstance(z, dict)]
+        res = entry.get("resolution") if isinstance(entry.get("resolution"), dict) else {}
+        lean = {
+            "description": str(entry.get("description") or ""),
+            "resolution": {
+                "width": int(res.get("width") or _DEFAULT_RESOLUTION["width"]),
+                "height": int(res.get("height") or _DEFAULT_RESOLUTION["height"]),
+            },
+            "zones": _build_zones(zone_list),
+        }
+        raw[key] = lean
+        _write_background_sidecar(key, lean)
+        count += 1
+    json_store.write_json(raw, key=MANIFEST_OBJECT_KEY, local_path=MANIFEST_PATH, dumps=_dump_manifest)
+    load_manifest.cache_clear()
+    return count
+
+
 def _write_background_sidecar(manifest_key: str, entry: dict[str, Any]) -> None:
     """Write the per-background config sidecar (the co-located source of truth).
 
