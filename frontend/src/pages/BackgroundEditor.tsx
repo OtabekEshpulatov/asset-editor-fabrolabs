@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { apiV4, type BackgroundEditable, type BgZone } from '../api';
 import ObjectLayerEditor from '../components/ObjectLayerEditor';
 
@@ -66,8 +66,16 @@ type Drag = { kind: 'vertex'; zone: number; vertex: number };
 
 export default function BackgroundEditorPage() {
   const { slug = '' } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   // Same editor serves /backgrounds/:slug and /videos/:slug.
-  const isVideo = useLocation().pathname.startsWith('/videos/');
+  const isVideo = location.pathname.startsWith('/videos/');
+
+  // Return to the gallery exactly as the user left it (tab/filter/collapse are
+  // in its URL, which Back restores). Fall back to /assets when this page was
+  // opened as a fresh deep-link with no in-app history to pop.
+  const goBack = () =>
+    location.key !== 'default' ? navigate(-1) : navigate('/assets');
   const [data, setData] = useState<BackgroundEditable | null>(null);
   const [original, setOriginal] = useState<BackgroundEditable | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -387,9 +395,9 @@ export default function BackgroundEditorPage() {
   if (error && !data) {
     return (
       <div className="space-y-3">
-        <Link to="/assets" className="text-sm text-blue-600 hover:underline">
+        <button onClick={goBack} className="text-sm text-blue-600 hover:underline">
           ← back to assets
-        </Link>
+        </button>
         <div className="text-red-600">Failed to load: {error}</div>
       </div>
     );
@@ -408,9 +416,9 @@ export default function BackgroundEditorPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link to="/assets" className="text-sm text-blue-600 hover:underline">
+          <button onClick={goBack} className="text-sm text-blue-600 hover:underline">
             ← assets
-          </Link>
+          </button>
           <h2 className="text-xl font-semibold">
             Zone editor — <span className="font-mono text-base">{data.slug}</span>
           </h2>

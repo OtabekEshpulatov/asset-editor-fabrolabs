@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiV4, type AssetCatalogItem, type AssetKind } from '../api';
 import AddAssetModal from '../components/AddAssetModal';
@@ -496,6 +496,32 @@ function Lightbox({
   );
 }
 
+// Collapsible category/world heading — a chevron + name + count. Folding a
+// section hides its cards (state persisted in the URL by the parent).
+function SectionHeader({
+  name,
+  count,
+  collapsed,
+  onToggle,
+}: {
+  name: string;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800"
+      title={collapsed ? 'Expand' : 'Collapse'}
+      aria-expanded={!collapsed}
+    >
+      <span className="text-gray-400">{collapsed ? '▸' : '▾'}</span>
+      {name} <span className="font-normal text-gray-400">({count})</span>
+    </button>
+  );
+}
+
 // A category "row" of sprites with a select-all + an action dropdown that
 // switches the displayed animation for the whole row (or just the selected
 // cards) at once — e.g. flip every dinosaur from idle to move_left.
@@ -503,10 +529,14 @@ function SpriteSection({
   category,
   items,
   onOpen,
+  collapsed,
+  onToggleCollapse,
 }: {
   category: string;
   items: AssetCatalogItem[];
   onOpen: (item: AssetCatalogItem) => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [forced, setForced] = useState<Record<string, string>>({});
@@ -550,17 +580,22 @@ function SpriteSection({
   return (
     <section className="space-y-2">
       <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-          {category} <span className="font-normal text-gray-400">({items.length})</span>
-        </h3>
-        <label className="flex items-center gap-1 text-xs text-gray-600">
-          <input type="checkbox" checked={allSelected} onChange={toggleAll} />
-          select all
-        </label>
-        {selected.size > 0 && (
+        <SectionHeader
+          name={category}
+          count={items.length}
+          collapsed={collapsed}
+          onToggle={onToggleCollapse}
+        />
+        {!collapsed && (
+          <label className="flex items-center gap-1 text-xs text-gray-600">
+            <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+            select all
+          </label>
+        )}
+        {!collapsed && selected.size > 0 && (
           <span className="text-xs text-gray-500">{selected.size} selected</span>
         )}
-        {actionOptions.length > 1 && (
+        {!collapsed && actionOptions.length > 1 && (
           <div className="ml-auto flex items-center gap-1">
             <span className="text-xs text-gray-500">show</span>
             <select
@@ -584,31 +619,69 @@ function SpriteSection({
           </div>
         )}
       </div>
-      <div className="flex flex-wrap gap-2">
-        {items.map((item) => (
-          <SpriteCard
-            key={item.slug}
-            item={item}
-            onOpen={() => onOpen(item)}
-            selected={selected.has(item.slug)}
-            onToggleSelect={() => toggle(item.slug)}
-            forcedAnim={forced[item.slug]}
-          />
-        ))}
-      </div>
+      {!collapsed && (
+        <div className="flex flex-wrap gap-2">
+          {items.map((item) => (
+            <SpriteCard
+              key={item.slug}
+              item={item}
+              onOpen={() => onOpen(item)}
+              selected={selected.has(item.slug)}
+              onToggleSelect={() => toggle(item.slug)}
+              forcedAnim={forced[item.slug]}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
 export default function AssetsPage() {
-  const [kind, setKind] = useState<AssetKind>('character');
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('all');
+  // Gallery view-state lives in the URL so it survives reloads and round-trips
+  // to the zone editor — the tab, search, category filter, and which sections
+  // are collapsed are all read from (and written back to) the query string.
+  const [params, setParams] = useSearchParams();
+  const kind: AssetKind = (KIND_TABS.some((t) => t.key === params.get('kind'))
+    ? params.get('kind')
+    : 'character') as AssetKind;
+  const query = params.get('q') ?? '';
+  const category = params.get('cat') ?? 'all';
+  const showDisabled = params.get('disabled') === '1';
+  const collapsed = useMemo(
+    () => new Set((params.get('collapsed') ?? '').split(',').filter(Boolean)),
+    [params],
+  );
+
   const [selected, setSelected] = useState<AssetCatalogItem | null>(null);
   const [adding, setAdding] = useState(false);
   const [managingActions, setManagingActions] = useState<string | null>(null);
-  const [showDisabled, setShowDisabled] = useState(false);
   const queryClient = useQueryClient();
+
+  // Merge a patch into the current query string. Empty/null clears the key.
+  // `replace` (the default) keeps filter tweaks out of history; pass push=true
+  // for the tab so Back returns to the previous tab.
+  const patch = (updates: Record<string, string | null>, opts?: { push?: boolean }) => {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(updates)) {
+      if (!v) next.delete(k);
+      else next.set(k, v);
+    }
+    setParams(next, { replace: !opts?.push });
+  };
+
+  // Categories differ per kind, so switching tabs clears the cat + collapse set.
+  const setKind = (k: AssetKind) =>
+    patch({ kind: k === 'character' ? null : k, cat: null, collapsed: null }, { push: true });
+  const setQuery = (q: string) => patch({ q });
+  const setCategory = (c: string) => patch({ cat: c === 'all' ? null : c });
+  const setShowDisabled = (b: boolean) => patch({ disabled: b ? '1' : null });
+  const toggleCollapse = (name: string) => {
+    const next = new Set(collapsed);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    patch({ collapsed: next.size ? Array.from(next).join(',') : null });
+  };
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['asset-catalog', kind, showDisabled],
@@ -617,11 +690,6 @@ export default function AssetsPage() {
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['asset-catalog'] });
-
-  // Category list is per-kind, so reset the filter whenever the kind changes.
-  useEffect(() => {
-    setCategory('all');
-  }, [kind]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -636,6 +704,9 @@ export default function AssetsPage() {
   }, [data, query, category]);
 
   const shown = filtered.reduce((n, c) => n + c.items.length, 0);
+  const allCollapsed = filtered.length > 0 && filtered.every((c) => collapsed.has(c.name));
+  const setAllCollapsed = (collapse: boolean) =>
+    patch({ collapsed: collapse ? filtered.map((c) => c.name).join(',') : null });
 
   return (
     <div className="space-y-5">
@@ -707,6 +778,15 @@ export default function AssetsPage() {
             />
             show disabled
           </label>
+          {filtered.length > 1 && (
+            <button
+              onClick={() => setAllCollapsed(!allCollapsed)}
+              className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-100"
+              title={allCollapsed ? 'Expand all sections' : 'Collapse all sections'}
+            >
+              {allCollapsed ? '▸ expand all' : '▾ collapse all'}
+            </button>
+          )}
           <span className="text-xs text-gray-500">
             {isLoading ? 'Loading…' : `${shown} shown`}
           </span>
@@ -719,21 +799,33 @@ export default function AssetsPage() {
 
       {filtered.map((c) =>
         kind === 'character' ? (
-          <SpriteSection key={c.name} category={c.name} items={c.items} onOpen={setSelected} />
+          <SpriteSection
+            key={c.name}
+            category={c.name}
+            items={c.items}
+            onOpen={setSelected}
+            collapsed={collapsed.has(c.name)}
+            onToggleCollapse={() => toggleCollapse(c.name)}
+          />
         ) : (
           <section key={c.name} className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              {c.name} <span className="font-normal text-gray-400">({c.items.length})</span>
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {c.items.map((item) =>
-                kind === 'video' ? (
-                  <VideoCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
-                ) : (
-                  <ImageCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
-                ),
-              )}
-            </div>
+            <SectionHeader
+              name={c.name}
+              count={c.items.length}
+              collapsed={collapsed.has(c.name)}
+              onToggle={() => toggleCollapse(c.name)}
+            />
+            {!collapsed.has(c.name) && (
+              <div className="flex flex-wrap gap-2">
+                {c.items.map((item) =>
+                  kind === 'video' ? (
+                    <VideoCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
+                  ) : (
+                    <ImageCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
+                  ),
+                )}
+              </div>
+            )}
           </section>
         ),
       )}
