@@ -28,7 +28,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          # 256M OOM-killed the Python workers (numpy/PIL/rlottie/boto3, x2 uvicorn
+          # workers) under the gallery's concurrent mp4 streams -> intermittent
+          # 500/502 ("Failed to load assets"). 1.5G is comfortable on the 8G host.
+          memory: 1536M
 
 volumes:
   asset_editor_data:
