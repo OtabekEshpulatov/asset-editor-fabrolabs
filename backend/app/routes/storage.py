@@ -10,6 +10,7 @@ bucket is used, so a renamed bucket still resolves as long as the object keys
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
@@ -34,7 +35,10 @@ async def get_object(first: str, key: str, request: Request):
         raise HTTPException(status_code=428, detail="storage not configured")
     byte_range = request.headers.get("range")
     try:
-        result = minio.stream_object(key, byte_range=byte_range)
+        # boto3 get_object is BLOCKING — run it off the event loop so one slow/large
+        # object read can't stall every other request on a single-worker server (the
+        # gallery streams many mp4s at once; blocking here cascades into 502s).
+        result = await asyncio.to_thread(minio.stream_object, key, byte_range=byte_range)
     except Exception as exc:  # connection/auth failure
         raise HTTPException(status_code=502, detail=f"storage read failed: {exc}")
     if result is None:

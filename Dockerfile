@@ -36,4 +36,6 @@ RUN mkdir -p /data
 VOLUME ["/data"]
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 2 workers so concurrent mp4 streams (the live-bg gallery loads many at once) don't
+# serialize behind one event loop and cascade into 502s.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

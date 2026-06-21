@@ -136,13 +136,22 @@ function ImageCard({ item, onOpen }: { item: AssetCatalogItem; onOpen: () => voi
 // view so a grid of 3-min clips stays light.
 function VideoThumb({ url, size = 120 }: { url?: string; size?: number }) {
   const ref = useRef<HTMLVideoElement>(null);
+  // Load the mp4 (set src) ONLY once the card is scrolled into view. With
+  // preload="metadata" + an always-set src, a grid of 80+ live-bg videos opened
+  // 80+ simultaneous /storage streams on mount — exhausting the browser's socket
+  // buffers (ERR_NO_BUFFER_SPACE) and overloading the single-worker backend (502s).
+  const [show, setShow] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const obs = new IntersectionObserver(
       ([e]) => {
-        if (e.isIntersecting) el.play().catch(() => {});
-        else el.pause();
+        if (e.isIntersecting) {
+          setShow(true);
+          el.play().catch(() => {});
+        } else {
+          el.pause();
+        }
       },
       { rootMargin: '100px' },
     );
@@ -152,11 +161,12 @@ function VideoThumb({ url, size = 120 }: { url?: string; size?: number }) {
   return (
     <video
       ref={ref}
-      src={url}
+      src={show ? url : undefined}
       muted
       loop
       playsInline
-      preload="metadata"
+      preload="none"
+      onLoadedData={(e) => e.currentTarget.play().catch(() => {})}
       className="bg-gray-100 object-cover"
       style={{ width: size, height: size }}
     />

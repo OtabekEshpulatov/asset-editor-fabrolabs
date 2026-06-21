@@ -6,6 +6,7 @@ unchanged. A router-level guard returns 428 until a storage connection is set.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -260,7 +261,7 @@ class MoversUpdate(BaseModel):
 async def get_video_movers(slug: str) -> dict:
     """Draggable moving-object view for one live background (needs a source bundle)."""
     try:
-        return livebg_service.get_movers(slug)
+        return await asyncio.to_thread(livebg_service.get_movers, slug)  # blocking MinIO reads off the loop
     except KeyError:
         raise HTTPException(status_code=404, detail=f"no video {slug!r}")
     except livebg_service.NotEditable:
