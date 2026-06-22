@@ -248,13 +248,34 @@ class MoverEditIn(BaseModel):
     x: float | None = None
     y: float | None = None
     w: int | None = None
+    flip: bool | None = None        # facing for float / patrol / pulse / peek
+    to_left: bool | None = None     # facing for swim (separate spec key)
+    x0: float | None = None
+    x1: float | None = None
+
+
+class AddedMoverIn(BaseModel):
+    id: str
+    kind: str
+    x: float | None = None
+    y: float | None = None
+    w: int | None = None
     flip: bool | None = None
+    still: bool | None = None       # "stays put" → zero-drift float/patrol
     x0: float | None = None
     x1: float | None = None
 
 
 class MoversUpdate(BaseModel):
-    movers: list[MoverEditIn]
+    movers: list[MoverEditIn] = []
+    removed: list[int] = []         # original indices to drop
+    added: list[AddedMoverIn] = []  # creatures to append
+
+
+@router.get("/videos/{slug}/movers/palette")
+async def get_video_object_palette(slug: str) -> list[dict]:
+    """Creatures that can be dropped into a scene (the union shipped across all bundles)."""
+    return await asyncio.to_thread(livebg_service.list_palette)
 
 
 @router.get("/videos/{slug}/movers")
@@ -270,10 +291,11 @@ async def get_video_movers(slug: str) -> dict:
 
 @router.post("/videos/{slug}/movers")
 async def save_video_movers(slug: str, body: MoversUpdate) -> dict:
-    """Apply object-position edits, re-render the mp4 (no LLM) and upload it back."""
+    """Apply object edits + removals + additions, re-render the mp4 (no LLM) and upload it back."""
     edits = [e.model_dump(exclude_unset=True) for e in body.movers]
+    added = [a.model_dump(exclude_unset=True) for a in body.added]
     try:
-        return await livebg_service.save_movers(slug, edits)
+        return await livebg_service.save_movers(slug, edits, removed=body.removed, added=added)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"no video {slug!r}")
     except livebg_service.NotEditable:

@@ -29,6 +29,8 @@ from app.storage import minio
 W = 1280                                              # render width — mover x/w are % / px of this
 _WDEF = {"pulse": 40, "peek": 90, "patrol": 90}       # default cutout width by kind (matches spec_to_layers)
 _POSITIONABLE = {"float", "pulse", "peek", "patrol"}  # movers the editor lets you drag freely (have x,y)
+_ADDABLE_KINDS = {"float", "swim", "patrol", "pulse"}  # kinds the editor can ADD a fresh mover as
+_WADD = {"float": 80, "swim": 80, "patrol": 90, "pulse": 40}  # default width when adding, by kind
 
 _locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -75,15 +77,64 @@ def get_movers(slug: str) -> dict:
     }
 
 
+def list_palette() -> list[dict]:
+    """Every creature shipped in any scene bundle — the set you can drop into a scene.
+    The bundle flattens the source namespace, so a creature here is renderable in any scene
+    (its source gets copied in on add). Each carries a preview cutout if one was shipped."""
+    sources, cuts = bundle.scan_global_sources()
+    out: list[dict] = []
+    for mid in sorted(sources):
+        url = minio.public_url_for_key(cuts[mid]) if mid in cuts else None
+        out.append({"id": mid, "preview_url": url})
+    return out
+
+
+def _coord(v, default: int) -> int:
+    """Tolerant %-coordinate coercion: a bad/non-numeric field falls back instead of 500ing."""
+    try:
+        return int(round(float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _new_mover(a: dict, loop_s: float) -> dict | None:
+    """Build a spec mover from an editor 'add'. The editor supplies id/kind/position/size
+    (+ optional still/flip/x0/x1); engine animation params are filled here to match
+    render.spec_to_layers defaults. No `shared`/`prompt` — the bundle flattens sources."""
+    mid = str(a.get("id") or "").strip()
+    kind = str(a.get("kind") or "float").strip()
+    if not mid or kind not in _ADDABLE_KINDS:
+        return None
+    w = int(a.get("w") or _WADD[kind])
+    flip, still = bool(a.get("flip", False)), bool(a.get("still", False))
+    x, y = _coord(a.get("x"), 50), _coord(a.get("y"), 50)
+    m: dict = {"id": mid, "kind": kind, "w": w}
+    if kind == "swim":
+        m.update({"y": _coord(a.get("y"), 16),
+                  "to_left": flip, "start": 0.1, "dur": 0.5, "ay": 2.5, "ty": 6})
+        x0v, x1v = a.get("x0"), a.get("x1")           # optional confined flight band
+        if x0v is not None and x1v is not None and not (x0v <= 0.5 and x1v >= 99.5):
+            m["x0"], m["x1"] = _coord(x0v, 0), _coord(x1v, 100)
+    elif kind == "float":
+        m.update({"x": x, "y": y, "flip": flip,
+                  "ax": 0 if still else 2, "tx": loop_s, "ay": 0 if still else 1, "ty": loop_s})
+    elif kind == "patrol":
+        m.update({"x": x, "y": y, "ax": 6, "period": 14, "ay": 0, "ty": 9})
+    elif kind == "pulse":
+        m.update({"x": x, "y": y, "period": 3.0, "base_op": 0.25, "max_op": 1.0})
+    return m
+
+
 def _apply_edits(spec: dict, edits: list[dict]) -> dict:
-    """Write x/y/w/flip (and the swim flight band) back into the spec by index — the
-    exact rule from routes_livebg.save_scene (only fields the editor sent)."""
+    """Write x/y/w/flip/to_left (and the swim flight band) back into existing movers BY
+    ORIGINAL INDEX (only fields the editor sent). Swim facing lives in `to_left`, the rest
+    in `flip` — render.spec_to_layers reads them on those separate keys."""
     movers = spec.get("movers", [])
     for edit in edits:
         i = edit.get("index")
         if i is None or not (0 <= i < len(movers)):
             continue
-        for k in ("x", "y", "w", "flip"):
+        for k in ("x", "y", "w", "flip", "to_left"):
             if k in edit and edit[k] is not None:
                 movers[i][k] = edit[k]
         if "x0" in edit and "x1" in edit:             # swim flight band: write if confined, drop if full-width
@@ -94,6 +145,28 @@ def _apply_edits(spec: dict, edits: list[dict]) -> dict:
             else:
                 movers[i]["x0"], movers[i]["x1"] = x0v, x1v
     spec["movers"] = movers
+    return spec
+
+
+def _apply_removed_added(spec: dict, key: str, removed: list, added: list) -> dict:
+    """Drop `removed` original indices, then append `added` creatures (copying each one's
+    source art into this bundle so the LLM-free render can key it). Must run AFTER _apply_edits
+    so edit/removed indices both reference the ORIGINAL mover order."""
+    movers = spec.get("movers", [])
+    # bool is an int subclass — exclude it so a stray JSON true/false can't drop index 0/1
+    rm = {int(i) for i in (removed or []) if isinstance(i, int) and not isinstance(i, bool)}
+    kept = [m for i, m in enumerate(movers) if i not in rm]
+    if added:
+        loop_s = float(spec.get("loop_s", 24))
+        sources, cuts = bundle.scan_global_sources()
+        for a in added:
+            nm = _new_mover(a, loop_s)
+            if nm is None:
+                continue
+            if not bundle.ensure_source(key, nm["id"], sources, cuts):
+                raise FileNotFoundError(f"no source art for creature {nm['id']!r}")
+            kept.append(nm)
+    spec["movers"] = kept
     return spec
 
 
@@ -111,11 +184,12 @@ def _to_1080p(mp4: Path, workdir: Path) -> Path:
     return out
 
 
-def _rerender_blocking(key: str, slug: str, edits: list[dict]) -> str:
+def _rerender_blocking(key: str, slug: str, edits: list[dict], removed: list, added: list) -> str:
     spec = bundle.read_spec(key)
     if spec is None:
         raise NotEditable(slug)
     spec = _apply_edits(spec, edits)
+    spec = _apply_removed_added(spec, key, removed, added)
     work = Path(tempfile.mkdtemp("livebg_edit_"))
     try:
         bundle.download_to_workdir(key, spec, work)
@@ -139,10 +213,12 @@ def _rerender_blocking(key: str, slug: str, edits: list[dict]) -> str:
     return _video_url(key, slug)
 
 
-async def save_movers(slug: str, edits: list[dict]) -> dict:
+async def save_movers(slug: str, edits: list[dict], removed: list | None = None,
+                      added: list | None = None) -> dict:
     key = videos.video_key(slug)
     if key is None:
         raise KeyError(slug)
     async with _locks[slug]:
-        video_url = await asyncio.to_thread(_rerender_blocking, key, slug, edits)
+        video_url = await asyncio.to_thread(
+            _rerender_blocking, key, slug, edits, removed or [], added or [])
     return {"ok": True, "video_url": video_url}

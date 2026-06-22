@@ -130,6 +130,27 @@ export interface Mover {
   positionable: boolean;        // float/pulse/peek/patrol — draggable x,y
   has_y: boolean;               // positionable OR swim
   cutout_url: string | null;    // null for fall/bubbles (full-frame) or if no preview shipped
+  isNew?: boolean;              // client-only: added this session, not yet in the spec
+  still?: boolean;              // client-only: "stays put" (zero drift) for an added float
+}
+
+/** A creature from the cross-bundle palette that can be dropped into a scene. */
+export interface PaletteAsset {
+  id: string;
+  preview_url: string | null;
+}
+
+/** A creature being added to a scene (engine animation params filled server-side). */
+export interface AddedMover {
+  id: string;
+  kind: string;
+  x?: number;
+  y?: number;
+  w?: number;
+  flip?: boolean;
+  still?: boolean;
+  x0?: number;
+  x1?: number;
 }
 
 export interface MoverEdit {
@@ -137,9 +158,16 @@ export interface MoverEdit {
   x?: number;
   y?: number;
   w?: number;
-  flip?: boolean;
+  flip?: boolean;      // facing for float / patrol / pulse / peek
+  to_left?: boolean;   // facing for swim (separate spec key)
   x0?: number;
   x1?: number;
+}
+
+export interface SaveMoversBody {
+  movers: MoverEdit[];
+  removed?: number[];
+  added?: AddedMover[];
 }
 
 export interface VideoMovers {
@@ -195,9 +223,15 @@ export const apiV4 = {
   getVideoMovers: (slug: string) =>
     client.get<VideoMovers>(`/videos/${encodeURIComponent(slug)}/movers`).then((r) => r.data),
 
-  saveVideoMovers: (slug: string, movers: MoverEdit[]) =>
+  // Creatures that can be dropped into a scene (union across all scene bundles).
+  listVideoObjectPalette: (slug: string) =>
     client
-      .post<{ ok: boolean; video_url: string }>(`/videos/${encodeURIComponent(slug)}/movers`, { movers })
+      .get<PaletteAsset[]>(`/videos/${encodeURIComponent(slug)}/movers/palette`)
+      .then((r) => r.data),
+
+  saveVideoMovers: (slug: string, body: SaveMoversBody) =>
+    client
+      .post<{ ok: boolean; video_url: string }>(`/videos/${encodeURIComponent(slug)}/movers`, body)
       .then((r) => r.data),
 
   addObject: (form: FormData) => client.post('/assets/objects', form).then((r) => r.data),

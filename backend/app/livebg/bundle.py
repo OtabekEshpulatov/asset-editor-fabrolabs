@@ -85,3 +85,47 @@ def cutout_preview_urls(video_key: str, ids: list[str]) -> dict[str, str]:
     except Exception:  # noqa: BLE001 — previews are optional UI sugar
         return {}
     return {mid: present[mid] for mid in ids if mid in present}
+
+
+# --- cross-bundle creature palette (for ADDING objects) ---------------------
+
+def scan_global_sources() -> tuple[dict[str, str], dict[str, str]]:
+    """Across EVERY scene bundle, the union of placeable creatures: returns
+    ({id: assets/{id}.png key}, {id: cuts/{id}.png key}) from a single listing. The first
+    occurrence of an id wins — every bundle's source of a shared creature is identical."""
+    sources: dict[str, str] = {}
+    cuts: dict[str, str] = {}
+    try:
+        keys = minio.list_objects("live_backgrounds/")
+    except Exception:  # noqa: BLE001
+        return {}, {}
+    for k in keys:
+        if not k.endswith(".png"):
+            continue
+        if ".source/assets/" in k:
+            sources.setdefault(Path(k).stem, k)
+        elif ".source/cuts/" in k:
+            cuts.setdefault(Path(k).stem, k)
+    return sources, cuts
+
+
+def ensure_source(video_key: str, asset_id: str, sources: dict[str, str], cuts: dict[str, str]) -> bool:
+    """Make sure THIS bundle has the green/magenta SOURCE for `asset_id` (copying it in from
+    another bundle if needed) so the LLM-free render can key it. Also best-effort copies the
+    cutout preview so the editor shows it after reload. Returns False if no source exists anywhere."""
+    pref = bundle_prefix(video_key)
+    dst = f"{pref}assets/{asset_id}.png"
+    if not minio.object_exists(dst):
+        src = sources.get(asset_id)
+        if src is None:
+            return False
+        minio.copy_object(src, dst)
+    preview = cuts.get(asset_id)
+    if preview:
+        cdst = f"{pref}cuts/{asset_id}.png"
+        if not minio.object_exists(cdst):
+            try:
+                minio.copy_object(preview, cdst)
+            except Exception:  # noqa: BLE001 — preview is optional UI sugar
+                pass
+    return True
