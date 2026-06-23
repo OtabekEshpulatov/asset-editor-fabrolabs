@@ -7,13 +7,13 @@ import { apiV4, type AddedMover, type Mover, type MoverEdit, type PaletteAsset }
 
 const clampPct = (n: number) => Math.max(0, Math.min(100, n));
 
-/** Motion presets offered when adding an object — map to a spec `kind` (+ "still"). */
+/** Motion presets offered when adding an object — map to a spec `kind` (+ still/breathe). */
 const MOTIONS = [
-  { key: 'still', label: 'Stays put', kind: 'float', still: true },
-  { key: 'float', label: 'Drifts', kind: 'float', still: false },
-  { key: 'swim', label: 'Flies across', kind: 'swim', still: false },
-  { key: 'patrol', label: 'Paces side-to-side', kind: 'patrol', still: false },
-  { key: 'pulse', label: 'Twinkles', kind: 'pulse', still: false },
+  { key: 'wave', label: 'Fly across (wave)', kind: 'swim', still: false, breathe: false },
+  { key: 'breathe', label: 'Stay & pulse size', kind: 'float', still: true, breathe: true },
+  { key: 'drift', label: 'Drift gently', kind: 'float', still: false, breathe: false },
+  { key: 'patrol', label: 'Pace side-to-side', kind: 'patrol', still: false, breathe: false },
+  { key: 'twinkle', label: 'Twinkle (fade)', kind: 'pulse', still: false, breathe: false },
 ] as const;
 type Motion = (typeof MOTIONS)[number];
 const ADD_W: Record<string, number> = { float: 80, swim: 80, patrol: 90, pulse: 40 };
@@ -93,7 +93,9 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
           if (d.mode === 'resize') {
             // Keep the 1280-px width baseline: the backend keys the cutout on `w`. The handle
             // sits at the box's bottom-right for every kind, so dragging right always grows.
-            const wpct = Math.max(1.5, Math.min(60, d.origW + (px - d.startX) * 2));
+            // Cap at 150% of frame width so big creatures (butterflies) can grow well past the
+            // old 60% limit; the source is upsized by PIL on render.
+            const wpct = Math.max(1.5, Math.min(150, d.origW + (px - d.startX) * 2));
             const w = Math.max(8, Math.round((wpct / 100) * 1280));
             return { ...m, w, w_pct: (w / 1280) * 100 };
           }
@@ -152,6 +154,7 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
       cutout_url: asset.preview_url,
       isNew: true,
       still: motion.still,
+      breathe: motion.breathe,
     };
     setMovers((prev) => {
       const next = [...prev, nm];
@@ -207,7 +210,7 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
       const added: AddedMover[] = movers
         .filter((m) => m.isNew)
         .map((m) => {
-          const a: AddedMover = { id: m.id, kind: m.kind, w: m.w, still: m.still };
+          const a: AddedMover = { id: m.id, kind: m.kind, w: m.w, still: m.still, breathe: m.breathe };
           if (m.kind === 'swim') {
             a.y = Math.round(m.y ?? 16);
             a.flip = m.to_left;

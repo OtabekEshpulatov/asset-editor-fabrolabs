@@ -261,7 +261,8 @@ class AddedMoverIn(BaseModel):
     y: float | None = None
     w: int | None = None
     flip: bool | None = None
-    still: bool | None = None       # "stays put" → zero-drift float/patrol
+    still: bool | None = None       # "stays put" → zero-drift float
+    breathe: bool | None = None     # "stay but gently pulse size" → animated float scale
     x0: float | None = None
     x1: float | None = None
 

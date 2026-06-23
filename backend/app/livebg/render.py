@@ -172,7 +172,8 @@ def spec_to_layers(spec: dict, assets_dir: Path, cuts_dir: Path) -> list:
             fp = flip(path) if m.get("flip") else path        # face into the scene
             layers.append(Float(fp, m["x"], m["y"], scale=m.get("scale", 1.0),
                                 ax_pct=m.get("ax", 2), tx_s=m.get("tx", spec.get("loop_s", 24)), phx=m.get("phx", 0),
-                                ay_pct=m.get("ay", 1), ty_s=m.get("ty", spec.get("loop_s", 24)), phy=m.get("phy", 0), name=m["id"]))
+                                ay_pct=m.get("ay", 1), ty_s=m.get("ty", spec.get("loop_s", 24)), phy=m.get("phy", 0),
+                                breathe=m.get("breathe", 0.0), tb_s=m.get("tb", 4.0), name=m["id"]))
         elif kind == "swim":
             p = flip(path) if m.get("to_left") else path
             layers.append(Swim(p, m["y"], scale=m.get("scale", 1.0), to_left=m.get("to_left", False),

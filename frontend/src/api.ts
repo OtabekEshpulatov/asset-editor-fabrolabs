@@ -132,6 +132,7 @@ export interface Mover {
   cutout_url: string | null;    // null for fall/bubbles (full-frame) or if no preview shipped
   isNew?: boolean;              // client-only: added this session, not yet in the spec
   still?: boolean;              // client-only: "stays put" (zero drift) for an added float
+  breathe?: boolean;            // client-only: "stay but gently pulse size" for an added float
 }
 
 /** A creature from the cross-bundle palette that can be dropped into a scene. */
@@ -149,6 +150,7 @@ export interface AddedMover {
   w?: number;
   flip?: boolean;
   still?: boolean;
+  breathe?: boolean;
   x0?: number;
   x1?: number;
 }

@@ -118,6 +118,8 @@ def _new_mover(a: dict, loop_s: float) -> dict | None:
     elif kind == "float":
         m.update({"x": x, "y": y, "flip": flip,
                   "ax": 0 if still else 2, "tx": loop_s, "ay": 0 if still else 1, "ty": loop_s})
+        if bool(a.get("breathe")):                    # "stay in place but gently pulse size"
+            m["breathe"], m["tb"] = 0.08, 4
     elif kind == "patrol":
         m.update({"x": x, "y": y, "ax": 6, "period": 14, "ay": 0, "ty": 9})
     elif kind == "pulse":

@@ -45,6 +45,8 @@ class Float:
     ay_pct: float = 0.0   # y amplitude, % of H
     ty_s: float = 10.0    # y period, seconds
     phy: float = 0.0      # y phase, turns
+    breathe: float = 0.0  # scale "breathing" amplitude, fraction of scale (0.08 = ±8%); 0 = static size
+    tb_s: float = 4.0     # breathe period, seconds (snapped to divide the loop)
     name: str = "float"
 
 
@@ -180,16 +182,28 @@ def _asset(cache: dict, assets: list, png: str) -> tuple[str, int, int]:
 
 
 def _layer(ind: int, aid: str, pw: int, ph: int, pos: dict, scale: float, op: int, name: str,
-           opacity: dict | None = None) -> dict:
+           opacity: dict | None = None, scale_kf: dict | None = None) -> dict:
     return {
         "ddd": 0, "ind": ind, "ty": 2, "nm": name, "refId": aid, "sr": 1,
         "ks": {
             "o": opacity if opacity is not None else {"a": 0, "k": 100}, "r": {"a": 0, "k": 0}, "p": pos,
             "a": {"a": 0, "k": [pw / 2.0, ph / 2.0, 0]},
-            "s": {"a": 0, "k": [scale * 100.0, scale * 100.0, 100]},
+            "s": scale_kf if scale_kf is not None else {"a": 0, "k": [scale * 100.0, scale * 100.0, 100]},
         },
         "ao": 0, "ip": 0, "op": op, "st": 0, "bm": 0,
     }
+
+
+def _breathe_kf(scale: float, amp: float, tb_s: float, fps: int, op: int, loop_s: float, stride: int) -> dict:
+    """Animated transform scale: gently oscillate the cutout's size between
+    scale*(1-amp) and scale*(1+amp) — an in-place 'breathing' idle. Same keyframe
+    shape as the position animations (rlottie needs the i/o handles _animated adds)."""
+    wv = 2 * math.pi / (_snap_period(tb_s, loop_s) * fps)
+    kf = []
+    for t in _frames(op, stride):
+        s = round(scale * (1.0 + amp * math.sin(wv * t)) * 100.0, 2)
+        kf.append({"t": t, "s": [s, s, 100]})
+    return _animated(kf)
 
 
 def _snap_period(t_s: float, loop_s: float) -> float:
@@ -357,7 +371,10 @@ def build_overlay(layers: list, *, w: int, h: int, fps: int, loop_s: float, kf_s
     for layer in layers:
         aid, pw, ph = _asset(cache, assets, layer.png)
         if isinstance(layer, Float):
-            out.append(_layer(ind, aid, pw, ph, _float_kf(layer, w, h, fps, op, loop_s, kf_stride), layer.scale, op, layer.name))
+            skf = (_breathe_kf(layer.scale, layer.breathe, layer.tb_s, fps, op, loop_s, kf_stride)
+                   if layer.breathe > 0 else None)
+            out.append(_layer(ind, aid, pw, ph, _float_kf(layer, w, h, fps, op, loop_s, kf_stride),
+                              layer.scale, op, layer.name, scale_kf=skf))
             ind += 1
         elif isinstance(layer, Swim):
             op_anim = _swim_op_kf(layer, op, kf_stride) if layer.x0_pct is not None else None
