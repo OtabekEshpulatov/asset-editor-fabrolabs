@@ -44,7 +44,7 @@ def _mover_view(m: dict, i: int, cut_urls: dict[str, str]) -> dict:
     mid = m.get("id", "")
     w = m.get("w", _WDEF.get(kind, 80))
     has_cut = kind not in ("fall", "bubbles")
-    return {
+    view = {
         "index": i, "id": mid, "kind": kind,
         "x": m.get("x"), "y": m.get("y"), "w": w, "w_pct": round(w / W * 100, 3),
         "flip": bool(m.get("flip", False)), "to_left": bool(m.get("to_left", False)),
@@ -54,6 +54,15 @@ def _mover_view(m: dict, i: int, cut_urls: dict[str, str]) -> dict:
         "has_y": kind in _POSITIONABLE or kind == "swim",
         "cutout_url": cut_urls.get(mid) if has_cut else None,
     }
+    if kind == "peek" and m.get("bush"):              # a peek critter pops up from behind a foreground bush
+        bw = m.get("bush_w", 210)
+        view["bush"] = m["bush"]
+        view["bush_x"] = m.get("bush_x", m.get("x"))
+        view["bush_y"] = m.get("bush_y", (m.get("y") or 0) + 6)
+        view["bush_w"] = bw
+        view["bush_w_pct"] = round(bw / W * 100, 3)
+        view["bush_cutout_url"] = cut_urls.get(m["bush"])
+    return view
 
 
 def _video_url(key: str, slug: str) -> str:
@@ -68,7 +77,12 @@ def get_movers(slug: str) -> dict:
     if spec is None:
         raise NotEditable(slug)
     movers = spec.get("movers", [])
-    cut_urls = bundle.cutout_preview_urls(key, [m.get("id", "") for m in movers])
+    ids: list[str] = []
+    for m in movers:
+        ids.append(m.get("id", ""))
+        if m.get("kind") == "peek" and m.get("bush"):   # the bush has its own shipped cutout preview
+            ids.append(m["bush"])
+    cut_urls = bundle.cutout_preview_urls(key, ids)
     return {
         "slug": slug,
         "video_url": _video_url(key, slug),
@@ -143,7 +157,7 @@ def _apply_edits(spec: dict, edits: list[dict]) -> dict:
         i = edit.get("index")
         if i is None or not (0 <= i < len(movers)):
             continue
-        for k in ("x", "y", "w", "flip", "to_left", "speed"):
+        for k in ("x", "y", "w", "flip", "to_left", "speed", "bush_x", "bush_y", "bush_w"):
             if k in edit and edit[k] is not None:
                 movers[i][k] = edit[k]
         if "x0" in edit and "x1" in edit:             # swim flight band: write if confined, drop if full-width

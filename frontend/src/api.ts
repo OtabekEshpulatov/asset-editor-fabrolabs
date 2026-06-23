@@ -134,6 +134,13 @@ export interface Mover {
   isNew?: boolean;              // client-only: added this session, not yet in the spec
   still?: boolean;              // client-only: "stays put" (zero drift) for an added float
   breathe?: boolean;            // client-only: "stay but gently pulse size" for an added float
+  // peek movers carry a foreground bush you can drag/resize independently of the critter
+  bush?: string | null;
+  bush_x?: number | null;
+  bush_y?: number | null;
+  bush_w?: number;
+  bush_w_pct?: number;
+  bush_cutout_url?: string | null;
 }
 
 /** A creature from the cross-bundle palette that can be dropped into a scene. */
@@ -167,6 +174,9 @@ export interface MoverEdit {
   speed?: number;      // animation-rate multiplier (>1 faster)
   x0?: number;
   x1?: number;
+  bush_x?: number;     // peek: foreground bush position / size
+  bush_y?: number;
+  bush_w?: number;
 }
 
 export interface SaveMoversBody {

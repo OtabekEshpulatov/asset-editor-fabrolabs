@@ -253,6 +253,9 @@ class MoverEditIn(BaseModel):
     speed: float | None = None      # animation-rate multiplier (>1 faster)
     x0: float | None = None
     x1: float | None = None
+    bush_x: float | None = None     # peek: foreground bush position / size
+    bush_y: float | None = None
+    bush_w: int | None = None
 
 
 class AddedMoverIn(BaseModel):
