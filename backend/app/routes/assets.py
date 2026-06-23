@@ -250,6 +250,7 @@ class MoverEditIn(BaseModel):
     w: int | None = None
     flip: bool | None = None        # facing for float / patrol / pulse / peek
     to_left: bool | None = None     # facing for swim (separate spec key)
+    speed: float | None = None      # animation-rate multiplier (>1 faster)
     x0: float | None = None
     x1: float | None = None
 
@@ -263,6 +264,7 @@ class AddedMoverIn(BaseModel):
     flip: bool | None = None
     still: bool | None = None       # "stays put" → zero-drift float
     breathe: bool | None = None     # "stay but gently pulse size" → animated float scale
+    speed: float | None = None      # animation-rate multiplier (>1 faster)
     x0: float | None = None
     x1: float | None = None
 

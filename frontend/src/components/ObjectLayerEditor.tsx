@@ -18,6 +18,7 @@ const MOTIONS = [
 type Motion = (typeof MOTIONS)[number];
 const ADD_W: Record<string, number> = { float: 80, swim: 80, patrol: 90, pulse: 40 };
 const FLIPPABLE = new Set(['float', 'patrol', 'pulse', 'peek', 'swim']);   // kinds that can be re-faced
+const SPEEDABLE = new Set(['float', 'swim', 'patrol', 'pulse']);           // kinds with an adjustable rate
 
 type Drag =
   | { index: number; mode: 'move' }
@@ -149,6 +150,7 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
       to_left: false,
       x0: null,
       x1: null,
+      speed: 1,
       positionable: kind === 'float' || kind === 'patrol' || kind === 'pulse',
       has_y: true,
       cutout_url: asset.preview_url,
@@ -188,6 +190,12 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
     onDirty?.();
   };
 
+  const setSpeed = (i: number, v: number) => {
+    setMovers((prev) => prev.map((m, j) => (j === i ? { ...m, speed: v } : m)));
+    setDirty(true);
+    onDirty?.();
+  };
+
   const save = async () => {
     setSaving(true);
     setError(null);
@@ -198,6 +206,7 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
           const e: MoverEdit = { index: m.index, w: m.w };
           if (m.x != null) e.x = Math.round(m.x);
           if (m.y != null) e.y = Math.round(m.y);
+          if (SPEEDABLE.has(m.kind)) e.speed = m.speed ?? 1;
           if (m.kind === 'swim') {
             e.to_left = m.to_left;          // swim facing key
             e.x0 = Math.round(m.x0 ?? 0);
@@ -211,6 +220,7 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
         .filter((m) => m.isNew)
         .map((m) => {
           const a: AddedMover = { id: m.id, kind: m.kind, w: m.w, still: m.still, breathe: m.breathe };
+          if (SPEEDABLE.has(m.kind)) a.speed = m.speed ?? 1;
           if (m.kind === 'swim') {
             a.y = Math.round(m.y ?? 16);
             a.flip = m.to_left;
@@ -490,17 +500,34 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
               </div>
             )}
 
-            {sel != null && movers[sel] && FLIPPABLE.has(movers[sel].kind) && (
+            {sel != null && movers[sel] && (
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-600">
                 <span>
                   Selected <b>{movers[sel].id}</b>
                 </span>
-                <button
-                  onClick={() => toggleFlip(sel)}
-                  className="rounded border border-gray-300 bg-white px-2 py-0.5 hover:bg-gray-50"
-                >
-                  Flip ↔
-                </button>
+                {SPEEDABLE.has(movers[sel].kind) && (
+                  <label className="flex items-center gap-1">
+                    Speed
+                    <input
+                      type="range"
+                      min={0.25}
+                      max={3}
+                      step={0.25}
+                      value={movers[sel].speed ?? 1}
+                      onChange={(e) => setSpeed(sel, parseFloat(e.target.value))}
+                      className="w-24 align-middle"
+                    />
+                    <span className="w-8 tabular-nums">{(movers[sel].speed ?? 1).toFixed(2)}×</span>
+                  </label>
+                )}
+                {FLIPPABLE.has(movers[sel].kind) && (
+                  <button
+                    onClick={() => toggleFlip(sel)}
+                    className="rounded border border-gray-300 bg-white px-2 py-0.5 hover:bg-gray-50"
+                  >
+                    Flip ↔
+                  </button>
+                )}
                 <button
                   onClick={() => removeMover(sel)}
                   className="rounded border border-gray-300 bg-white px-2 py-0.5 text-red-600 hover:bg-red-50"

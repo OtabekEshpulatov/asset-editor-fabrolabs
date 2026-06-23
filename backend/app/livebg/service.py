@@ -49,6 +49,7 @@ def _mover_view(m: dict, i: int, cut_urls: dict[str, str]) -> dict:
         "x": m.get("x"), "y": m.get("y"), "w": w, "w_pct": round(w / W * 100, 3),
         "flip": bool(m.get("flip", False)), "to_left": bool(m.get("to_left", False)),
         "x0": m.get("x0"), "x1": m.get("x1"),         # swim flight band (null = full off-screen cross)
+        "speed": float(m.get("speed", 1.0)),          # animation-rate multiplier (>1 faster)
         "positionable": kind in _POSITIONABLE,
         "has_y": kind in _POSITIONABLE or kind == "swim",
         "cutout_url": cut_urls.get(mid) if has_cut else None,
@@ -109,6 +110,12 @@ def _new_mover(a: dict, loop_s: float) -> dict | None:
     flip, still = bool(a.get("flip", False)), bool(a.get("still", False))
     x, y = _coord(a.get("x"), 50), _coord(a.get("y"), 50)
     m: dict = {"id": mid, "kind": kind, "w": w}
+    try:                                              # animation-rate multiplier (optional)
+        sp = float(a.get("speed"))
+        if abs(sp - 1.0) > 1e-3:
+            m["speed"] = max(0.1, min(8.0, sp))
+    except (TypeError, ValueError):
+        pass
     if kind == "swim":
         m.update({"y": _coord(a.get("y"), 16),
                   "to_left": flip, "start": 0.1, "dur": 0.5, "ay": 2.5, "ty": 6})
@@ -136,7 +143,7 @@ def _apply_edits(spec: dict, edits: list[dict]) -> dict:
         i = edit.get("index")
         if i is None or not (0 <= i < len(movers)):
             continue
-        for k in ("x", "y", "w", "flip", "to_left"):
+        for k in ("x", "y", "w", "flip", "to_left", "speed"):
             if k in edit and edit[k] is not None:
                 movers[i][k] = edit[k]
         if "x0" in edit and "x1" in edit:             # swim flight band: write if confined, drop if full-width

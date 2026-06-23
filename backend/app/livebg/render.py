@@ -155,6 +155,7 @@ def spec_to_layers(spec: dict, assets_dir: Path, cuts_dir: Path) -> list:
     fg: list = []                       # foreground bushes — drawn ON TOP (prepended)
     for m in spec.get("movers", []):    # movers-less stub specs (e.g. ocean) -> plate-only loop
         kind = m["kind"]
+        sp = max(0.1, min(8.0, float(m.get("speed", 1.0))))   # animation-rate multiplier (>1 faster)
         if kind == "bubbles":
             layers.append(Strip(bubbles_png(cuts_dir), axis="y", tiles_per_loop=m.get("tiles", 1), to_negative=True, name=m["id"]))
             continue
@@ -164,25 +165,28 @@ def spec_to_layers(spec: dict, assets_dir: Path, cuts_dir: Path) -> list:
             continue
         if kind == "pulse":         # a stationary cutout whose opacity twinkles
             pp = cutout(assets_dir, cuts_dir, m["id"], m.get("w", 40))
-            layers.append(Pulse(pp, m["x"], m["y"], scale=m.get("scale", 1.0), period_s=m.get("period", 3.0),
+            layers.append(Pulse(pp, m["x"], m["y"], scale=m.get("scale", 1.0), period_s=m.get("period", 3.0) / sp,
                                 phase=m.get("phase", 0), base_op=m.get("base_op", 0.25), max_op=m.get("max_op", 1.0), name=m["id"]))
             continue
         path = cutout(assets_dir, cuts_dir, m["id"], m.get("w", 80), haze=m.get("haze", False))
         if kind == "float":
             fp = flip(path) if m.get("flip") else path        # face into the scene
+            loop_s = spec.get("loop_s", 24)
             layers.append(Float(fp, m["x"], m["y"], scale=m.get("scale", 1.0),
-                                ax_pct=m.get("ax", 2), tx_s=m.get("tx", spec.get("loop_s", 24)), phx=m.get("phx", 0),
-                                ay_pct=m.get("ay", 1), ty_s=m.get("ty", spec.get("loop_s", 24)), phy=m.get("phy", 0),
+                                ax_pct=m.get("ax", 2), tx_s=m.get("tx", loop_s) / sp, phx=m.get("phx", 0),
+                                ay_pct=m.get("ay", 1), ty_s=m.get("ty", loop_s) / sp, phy=m.get("phy", 0),
                                 breathe=m.get("breathe", 0.0), tb_s=m.get("tb", 4.0), name=m["id"]))
         elif kind == "swim":
             p = flip(path) if m.get("to_left") else path
+            start = m.get("start", 0.0)
+            dur = max(0.1, min(m.get("dur", 0.5) / sp, 1.0 - start, 0.95))   # faster = shorter crossing, stays seamless
             layers.append(Swim(p, m["y"], scale=m.get("scale", 1.0), to_left=m.get("to_left", False),
-                               start_frac=m.get("start", 0.0), dur_frac=m.get("dur", 0.5),
+                               start_frac=start, dur_frac=dur,
                                ay_pct=m.get("ay", 2.5), ty_s=m.get("ty", 6), phy=m.get("phy", 0),
                                x0_pct=m.get("x0"), x1_pct=m.get("x1"), name=m["id"]))
         elif kind == "patrol":
             pr = cutout(assets_dir, cuts_dir, m["id"], m.get("w", 90))
-            layers.append(Patrol(pr, flip(pr), m["x"], m["y"], ax_pct=m.get("ax", 6), period_s=m.get("period", 14),
+            layers.append(Patrol(pr, flip(pr), m["x"], m["y"], ax_pct=m.get("ax", 6), period_s=m.get("period", 14) / sp,
                                  phase=m.get("phase", 0), scale=m.get("scale", 1.0),
                                  ay_pct=m.get("ay", 0), ty_s=m.get("ty", 9), phy=m.get("phy", 0), name=m["id"]))
         elif kind == "peek":

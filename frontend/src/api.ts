@@ -127,6 +127,7 @@ export interface Mover {
   to_left: boolean;
   x0: number | null;            // swim flight band start % (null = full off-screen cross)
   x1: number | null;
+  speed: number;                // animation-rate multiplier (>1 faster)
   positionable: boolean;        // float/pulse/peek/patrol — draggable x,y
   has_y: boolean;               // positionable OR swim
   cutout_url: string | null;    // null for fall/bubbles (full-frame) or if no preview shipped
@@ -151,6 +152,7 @@ export interface AddedMover {
   flip?: boolean;
   still?: boolean;
   breathe?: boolean;
+  speed?: number;
   x0?: number;
   x1?: number;
 }
@@ -162,6 +164,7 @@ export interface MoverEdit {
   w?: number;
   flip?: boolean;      // facing for float / patrol / pulse / peek
   to_left?: boolean;   // facing for swim (separate spec key)
+  speed?: number;      // animation-rate multiplier (>1 faster)
   x0?: number;
   x1?: number;
 }
