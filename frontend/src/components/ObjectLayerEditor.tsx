@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { apiV4, type Mover, type MoverEdit } from '../api';
 
 // Ported from story-gen-exps frontend/src/pages/LivebgEditor.tsx (LivebgEditorPage),
@@ -7,9 +7,11 @@ import { apiV4, type Mover, type MoverEdit } from '../api';
 
 const clampPct = (n: number) => Math.max(0, Math.min(100, n));
 
+/** 'bush' edits a peek mover's foreground bush (bush_x/bush_y/bush_w); 'self' edits the critter. */
+type Target = 'self' | 'bush';
 type Drag =
-  | { index: number; mode: 'move' }
-  | { index: number; mode: 'resize'; startX: number; origW: number }
+  | { index: number; mode: 'move'; target: Target }
+  | { index: number; mode: 'resize'; startX: number; origW: number; target: Target }
   | { index: number; mode: 'rangeL' | 'rangeR' }
   | null;
 
@@ -69,13 +71,16 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
           if (i !== d.index) return m;
           if (d.mode === 'resize') {
             // Keep the 1280-px width baseline: the backend keys the cutout on `w`.
-            const dir = m.to_left ? -1 : 1; // right-placed cutouts grow when dragged left
+            // right-placed cutouts grow when dragged left; the bush isn't mirrored.
+            const dir = d.target !== 'bush' && m.to_left ? -1 : 1;
             const wpct = Math.max(1.5, Math.min(60, d.origW + (px - d.startX) * 2 * dir));
             const w = Math.max(8, Math.round((wpct / 100) * 1280));
+            if (d.target === 'bush') return { ...m, bush_w: w, bush_w_pct: (w / 1280) * 100 };
             return { ...m, w, w_pct: (w / 1280) * 100 };
           }
           if (d.mode === 'rangeL') return { ...m, x0: Math.min(Math.round(px), (m.x1 ?? 100) - 4) };
           if (d.mode === 'rangeR') return { ...m, x1: Math.max(Math.round(px), (m.x0 ?? 0) + 4) };
+          if (d.mode === 'move' && d.target === 'bush') return { ...m, bush_x: Math.round(px), bush_y: Math.round(py) };
           return { ...m, x: m.positionable ? Math.round(px) : m.x, y: Math.round(py) };
         }),
       );
@@ -95,16 +100,20 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
   }, []);
 
   const beginDrag =
-    (index: number, mode: 'move' | 'resize' | 'rangeL' | 'rangeR') => (e: React.PointerEvent) => {
+    (index: number, mode: 'move' | 'resize' | 'rangeL' | 'rangeR', target: Target = 'self') =>
+    (e: React.PointerEvent) => {
       e.preventDefault();
       e.stopPropagation();
       setSel(index);
       if (mode === 'resize') {
         const rect = canvasRef.current!.getBoundingClientRect();
         const startX = ((e.clientX - rect.left) / rect.width) * 100;
-        dragRef.current = { index, mode, startX, origW: movers[index].w_pct };
-      } else {
+        const origW = target === 'bush' ? movers[index].bush_w_pct ?? 18 : movers[index].w_pct;
+        dragRef.current = { index, mode, startX, origW, target };
+      } else if (mode === 'rangeL' || mode === 'rangeR') {
         dragRef.current = { index, mode };
+      } else {
+        dragRef.current = { index, mode, target };
       }
     };
 
@@ -121,6 +130,11 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
           if (m.kind === 'swim') {
             e.x0 = Math.round(m.x0 ?? 0);
             e.x1 = Math.round(m.x1 ?? 100);
+          }
+          if (m.kind === 'peek' && m.bush_id) {     // the foreground bush's own position/size
+            if (m.bush_x != null) e.bush_x = Math.round(m.bush_x);
+            if (m.bush_y != null) e.bush_y = Math.round(m.bush_y);
+            if (m.bush_w != null) e.bush_w = Math.round(m.bush_w);
           }
           return e;
         });
@@ -183,7 +197,8 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
         <div>
           <p className="mb-1 text-xs text-gray-500">
             Drag an object to move it · drag the ● corner to resize · for flying objects, drag the
-            dashed lane up/down and drag its ● ends to set where it flies.
+            dashed lane up/down and drag its ● ends to set where it flies · a peek critter's bush
+            (green outline when selected) drags & resizes on its own.
           </p>
           <div
             ref={canvasRef}
@@ -263,38 +278,79 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
               // positionable: float / pulse / peek / patrol — centered at x%,y%
               const x = m.x ?? 50;
               const y = m.y ?? 50;
+              const hasBush = m.kind === 'peek' && !!m.bush_id;
               return (
-                <div
-                  key={i}
-                  className="absolute"
-                  style={{ left: `${x}%`, top: `${y}%`, width: `${m.w_pct}%`, transform: 'translate(-50%,-50%)' }}
-                >
-                  {m.cutout_url ? (
-                    <img
-                      src={m.cutout_url}
-                      alt={m.id}
-                      draggable={false}
-                      onPointerDown={beginDrag(i, 'move')}
-                      style={{ width: '100%', display: 'block', cursor: 'move', transform: mirror, outline: selected ? '2px solid #2563eb' : 'none' }}
-                    />
-                  ) : (
+                <Fragment key={i}>
+                  <div
+                    className="absolute"
+                    style={{ left: `${x}%`, top: `${y}%`, width: `${m.w_pct}%`, transform: 'translate(-50%,-50%)' }}
+                  >
+                    {m.cutout_url ? (
+                      <img
+                        src={m.cutout_url}
+                        alt={m.id}
+                        draggable={false}
+                        onPointerDown={beginDrag(i, 'move')}
+                        style={{ width: '100%', display: 'block', cursor: 'move', transform: mirror, outline: selected ? '2px solid #2563eb' : 'none' }}
+                      />
+                    ) : (
+                      <div
+                        onPointerDown={beginDrag(i, 'move')}
+                        title={m.id}
+                        className="flex items-center justify-center rounded border border-blue-500 bg-blue-500/20 text-[10px] text-blue-700"
+                        style={{ width: '100%', aspectRatio: '1 / 1', cursor: 'move', outline: selected ? '2px solid #2563eb' : 'none' }}
+                      >
+                        {m.id}
+                      </div>
+                    )}
+                    {selected && (
+                      <div
+                        onPointerDown={beginDrag(i, 'resize')}
+                        title="resize"
+                        className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-full border border-white bg-blue-600"
+                      />
+                    )}
+                  </div>
+                  {/* the foreground bush — drawn ON TOP (as in the render), draggable/resizable in green */}
+                  {hasBush && (
                     <div
-                      onPointerDown={beginDrag(i, 'move')}
-                      title={m.id}
-                      className="flex items-center justify-center rounded border border-blue-500 bg-blue-500/20 text-[10px] text-blue-700"
-                      style={{ width: '100%', aspectRatio: '1 / 1', cursor: 'move', outline: selected ? '2px solid #2563eb' : 'none' }}
+                      className="absolute"
+                      style={{
+                        left: `${m.bush_x ?? x}%`,
+                        top: `${m.bush_y ?? y}%`,
+                        width: `${m.bush_w_pct ?? 16}%`,
+                        transform: 'translate(-50%,-50%)',
+                        zIndex: 2,
+                      }}
                     >
-                      {m.id}
+                      {m.bush_cutout_url ? (
+                        <img
+                          src={m.bush_cutout_url}
+                          alt={m.bush_id}
+                          draggable={false}
+                          onPointerDown={beginDrag(i, 'move', 'bush')}
+                          style={{ width: '100%', display: 'block', cursor: 'move', outline: selected ? '2px solid #059669' : 'none' }}
+                        />
+                      ) : (
+                        <div
+                          onPointerDown={beginDrag(i, 'move', 'bush')}
+                          title={m.bush_id}
+                          className="flex items-center justify-center rounded border border-emerald-500 bg-emerald-500/20 text-[10px] text-emerald-700"
+                          style={{ width: '100%', aspectRatio: '1 / 1', cursor: 'move', outline: selected ? '2px solid #059669' : 'none' }}
+                        >
+                          {m.bush_id}
+                        </div>
+                      )}
+                      {selected && (
+                        <div
+                          onPointerDown={beginDrag(i, 'resize', 'bush')}
+                          title="resize bush"
+                          className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-full border border-white bg-emerald-600"
+                        />
+                      )}
                     </div>
                   )}
-                  {selected && (
-                    <div
-                      onPointerDown={beginDrag(i, 'resize')}
-                      title="resize"
-                      className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-full border border-white bg-blue-600"
-                    />
-                  )}
-                </div>
+                </Fragment>
               );
             })}
           </div>

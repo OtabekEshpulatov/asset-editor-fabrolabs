@@ -130,6 +130,13 @@ export interface Mover {
   positionable: boolean;        // float/pulse/peek/patrol — draggable x,y
   has_y: boolean;               // positionable OR swim
   cutout_url: string | null;    // null for fall/bubbles (full-frame) or if no preview shipped
+  // peek movers only: the foreground bush the critter hides behind (also draggable/resizable)
+  bush_id?: string;
+  bush_x?: number;
+  bush_y?: number;
+  bush_w?: number;
+  bush_w_pct?: number;
+  bush_cutout_url?: string | null;
 }
 
 export interface MoverEdit {
@@ -140,6 +147,9 @@ export interface MoverEdit {
   flip?: boolean;
   x0?: number;
   x1?: number;
+  bush_x?: number;     // peek: foreground bush position/size
+  bush_y?: number;
+  bush_w?: number;
 }
 
 export interface VideoMovers {

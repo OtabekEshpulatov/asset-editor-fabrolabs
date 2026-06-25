@@ -127,6 +127,9 @@ class Peek:
     hold_s: float = 1.6
     rise_s: float = 0.5
     name: str = "peek"
+    cover_y_pct: float | None = None              # the bush's BOTTOM edge, % of H. When set, the critter
+    #                                               is kept invisible while it would poke out BELOW the bush
+    #                                               (it only fades in once it has risen behind the bush).
 
 
 @dataclass
@@ -322,8 +325,27 @@ def _peek_pos_kf(pk: Peek, w: int, h: int, fps: int, op: int, stride: int) -> di
                       for t in _frames(op, stride)])
 
 
-def _peek_op_kf(pk: Peek, fps: int, op: int, stride: int) -> dict:
-    return _animated([{"t": t, "s": [round(100.0 * _peek_r(pk, t, fps, op), 2)]} for t in _frames(op, stride)])
+def _peek_op_kf(pk: Peek, fps: int, op: int, stride: int, h: int | None = None, ch: float | None = None) -> dict:
+    """Opacity over the loop. Without a bush (cover_y_pct None) it's the plain reveal fade.
+    WITH a bush, opacity is GATED by the critter's vertical position: it stays 0 while the
+    critter's bottom would poke out BELOW the bush bottom, and fades to full only once it has
+    risen behind the bush — so you never see it appear/leave below the bush. The revealed (up)
+    position is always shown, even if the bush is small."""
+    if pk.cover_y_pct is None or h is None or ch is None:
+        return _animated([{"t": t, "s": [round(100.0 * _peek_r(pk, t, fps, op), 2)]} for t in _frames(op, stride)])
+    y_up = pk.y_pct / 100.0 * h
+    rise = pk.rise_pct / 100.0 * h
+    cover_y = pk.cover_y_pct / 100.0 * h
+    b_up = y_up + ch / 2.0                              # critter's bottom edge when fully revealed
+    band = max(8.0, 0.045 * h)                          # smooth fade width, px
+    thresh = max(cover_y, b_up + band)                 # gate line; +band guarantees the up pose stays visible
+    kf = []
+    for t in _frames(op, stride):
+        r = _peek_r(pk, t, fps, op)
+        cb = b_up + (1.0 - r) * rise                    # critter's bottom edge at this frame (lower when sunk)
+        gate = max(0.0, min(1.0, (thresh - cb) / band))
+        kf.append({"t": t, "s": [round(100.0 * gate, 2)]})
+    return _animated(kf)
 
 
 def _patrol_pos_kf(pt: Patrol, w: int, h: int, fps: int, op: int, loop_s: float, stride: int) -> dict:
@@ -371,7 +393,8 @@ def build_overlay(layers: list, *, w: int, h: int, fps: int, loop_s: float, kf_s
             ind += 1
         elif isinstance(layer, Peek):
             out.append(_layer(ind, aid, pw, ph, _peek_pos_kf(layer, w, h, fps, op, kf_stride),
-                              layer.scale, op, layer.name, opacity=_peek_op_kf(layer, fps, op, kf_stride)))
+                              layer.scale, op, layer.name,
+                              opacity=_peek_op_kf(layer, fps, op, kf_stride, h=h, ch=ph * layer.scale)))
             ind += 1
         elif isinstance(layer, Patrol):
             aidR, pwR, phR = aid, pw, ph
