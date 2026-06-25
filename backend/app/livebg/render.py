@@ -191,12 +191,21 @@ def spec_to_layers(spec: dict, assets_dir: Path, cuts_dir: Path) -> list:
                                  ay_pct=m.get("ay", 0), ty_s=m.get("ty", 9), phy=m.get("phy", 0), name=m["id"]))
         elif kind == "peek":
             pk = flip(path) if m.get("flip") else path        # face into the scene (right-corner peeks)
-            layers.append(Peek(pk, m["x"], m["y"], scale=m.get("scale", 1.0),
-                               rise_pct=m.get("rise", 7), starts=m.get("starts", [0.25]),
-                               hold_s=m.get("hold", 1.6), rise_s=m.get("rise_s", 0.5), name=m["id"]))
+            cover_y = None
+            bush_layer = None
             if m.get("bush"):
                 bp = bush_cutout(assets_dir, cuts_dir, m["bush"], m.get("bush_w", 210))
-                fg.append(Float(bp, m.get("bush_x", m["x"]), m.get("bush_y", m["y"] + 6), name=m["bush"]))
+                bx, by = m.get("bush_x", m["x"]), m.get("bush_y", m["y"] + 6)
+                with Image.open(bp) as _bi:
+                    bush_h = _bi.height                       # bush png height at its target width
+                cover_y = by + (bush_h / 2.0) / H * 100.0     # the bush's BOTTOM edge, % of H
+                bush_layer = Float(bp, bx, by, name=m["bush"])
+            layers.append(Peek(pk, m["x"], m["y"], scale=m.get("scale", 1.0),
+                               rise_pct=m.get("rise", 7), starts=m.get("starts", [0.25]),
+                               hold_s=m.get("hold", 1.6), rise_s=m.get("rise_s", 0.5),
+                               name=m["id"], cover_y_pct=cover_y))
+            if bush_layer is not None:
+                fg.append(bush_layer)                          # drawn ON TOP (prepended via fg + layers)
     return fg + layers
 
 
