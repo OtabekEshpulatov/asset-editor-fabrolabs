@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app import asset_admin, backgrounds, connection, videos
+from app import asset_admin, backgrounds, connection, sprites_v2, videos
 from app.asset_urls import _spritesheet_url, resolve_asset_url
 from app.livebg import service as livebg_service
 from app.catalog import catalog, overrides
@@ -102,6 +102,9 @@ async def asset_catalog(kind: AssetKind, include_disabled: bool = False) -> dict
     if kind == "video":
         # Live mp4 backgrounds aren't in the static catalog — discovered in MinIO.
         return videos.catalog(include_disabled=include_disabled)
+    if kind == "animation":
+        # Animations v2 sprite libraries live under sprites-v2/ — discovered in MinIO.
+        return sprites_v2.catalog(include_disabled=include_disabled)
     categories_map = _CATEGORY_MAPS[kind]
     categories: list[dict] = []
     total = 0
@@ -256,6 +259,7 @@ class MoverEditIn(BaseModel):
     bush_x: float | None = None     # peek: foreground bush position / size
     bush_y: float | None = None
     bush_w: int | None = None
+    tiles_per_loop: int | None = None  # strip: parallax scroll speed (integer >=1)
 
 
 class AddedMoverIn(BaseModel):

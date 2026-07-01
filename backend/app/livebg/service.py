@@ -51,9 +51,11 @@ def _mover_view(m: dict, i: int, cut_urls: dict[str, str]) -> dict:
         "x0": m.get("x0"), "x1": m.get("x1"),         # swim flight band (null = full off-screen cross)
         "speed": float(m.get("speed", 1.0)),          # animation-rate multiplier (>1 faster)
         "positionable": kind in _POSITIONABLE,
-        "has_y": kind in _POSITIONABLE or kind == "swim",
+        "has_y": kind in _POSITIONABLE or kind in ("swim", "strip"),
         "cutout_url": cut_urls.get(mid) if has_cut else None,
     }
+    if kind == "strip":          # a full-width parallax band: y (vertical placement) + scroll speed
+        view["tiles_per_loop"] = int(m.get("tiles", m.get("tiles_per_loop", 1)))
     if kind == "peek" and m.get("bush"):              # a peek critter pops up from behind a foreground bush
         bw = m.get("bush_w", 210)
         view["bush"] = m["bush"]
@@ -160,6 +162,11 @@ def _apply_edits(spec: dict, edits: list[dict]) -> dict:
         for k in ("x", "y", "w", "flip", "to_left", "speed", "bush_x", "bush_y", "bush_w"):
             if k in edit and edit[k] is not None:
                 movers[i][k] = edit[k]
+        if edit.get("tiles_per_loop") is not None:    # strip scroll speed (integer >=1)
+            try:
+                movers[i]["tiles"] = max(1, int(edit["tiles_per_loop"]))
+            except (TypeError, ValueError):
+                pass
         if "x0" in edit and "x1" in edit:             # swim flight band: write if confined, drop if full-width
             x0v, x1v = edit.get("x0"), edit.get("x1")
             if x0v is None or x1v is None or (x0v <= 0.5 and x1v >= 99.5):

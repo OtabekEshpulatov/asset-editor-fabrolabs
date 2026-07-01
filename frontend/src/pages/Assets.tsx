@@ -19,6 +19,7 @@ const KIND_TABS: { key: AssetKind; label: string }[] = [
   { key: 'background', label: 'Backgrounds' },
   { key: 'object', label: 'Objects' },
   { key: 'video', label: 'Live BGs' },
+  { key: 'animation', label: 'Animations v2' },
 ];
 
 const ANIM_PREFERENCE = ['idle', 'happy', 'move'];
@@ -33,12 +34,14 @@ function SpriteCard({
   selected,
   onToggleSelect,
   forcedAnim,
+  hoverToPlay,
 }: {
   item: AssetCatalogItem;
   onOpen: () => void;
   selected?: boolean;
   onToggleSelect?: () => void;
   forcedAnim?: string;
+  hoverToPlay?: boolean;
 }) {
   const anims = item.animation_urls ?? {};
   const names = Object.keys(anims).sort();
@@ -78,6 +81,7 @@ function SpriteCard({
         <SpriteCanvas
           url={withRev(anims[anim], item.action_rev?.[anim])}
           fps={item.action_fps?.[anim] ?? FPS}
+          hoverToPlay={hoverToPlay}
         />
       </button>
       {item.enabled === false && <span className="text-[10px] text-red-500">disabled</span>}
@@ -212,7 +216,7 @@ function Lightbox({
   onManageActions: () => void;
   onChanged: () => void;
 }) {
-  const isSprite = kind === 'character';
+  const isSprite = kind === 'character' || kind === 'animation';
   const isVideo = kind === 'video';
   const anims = item.animation_urls ?? {};
   const names = Object.keys(anims).sort();
@@ -531,12 +535,14 @@ function SpriteSection({
   onOpen,
   collapsed,
   onToggleCollapse,
+  hoverToPlay,
 }: {
   category: string;
   items: AssetCatalogItem[];
   onOpen: (item: AssetCatalogItem) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  hoverToPlay?: boolean;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [forced, setForced] = useState<Record<string, string>>({});
@@ -629,6 +635,7 @@ function SpriteSection({
               selected={selected.has(item.slug)}
               onToggleSelect={() => toggle(item.slug)}
               forcedAnim={forced[item.slug]}
+              hoverToPlay={hoverToPlay}
             />
           ))}
         </div>
@@ -737,7 +744,7 @@ export default function AssetsPage() {
               </button>
             );
           })}
-          {kind !== 'video' && (
+          {kind !== 'video' && kind !== 'animation' && (
             <button
               onClick={() => setAdding(true)}
               disabled={!data}
@@ -798,7 +805,7 @@ export default function AssetsPage() {
       )}
 
       {filtered.map((c) =>
-        kind === 'character' ? (
+        kind === 'character' || kind === 'animation' ? (
           <SpriteSection
             key={c.name}
             category={c.name}
@@ -806,6 +813,7 @@ export default function AssetsPage() {
             onOpen={setSelected}
             collapsed={collapsed.has(c.name)}
             onToggleCollapse={() => toggleCollapse(c.name)}
+            hoverToPlay={kind === 'animation'}
           />
         ) : (
           <section key={c.name} className="space-y-2">

@@ -4,4 +4,4 @@ from __future__ import annotations
 
 from typing import Literal
 
-AssetKind = Literal["character", "object", "background", "video"]
+AssetKind = Literal["character", "object", "background", "video", "animation"]

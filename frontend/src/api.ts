@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-export type AssetKind = 'character' | 'object' | 'background' | 'video';
+export type AssetKind = 'character' | 'object' | 'background' | 'video' | 'animation';
 
 // --- asset types (subset of story-gen-exps api_v4 used by the editor) --------
 
@@ -141,6 +141,7 @@ export interface Mover {
   bush_w?: number;
   bush_w_pct?: number;
   bush_cutout_url?: string | null;
+  tiles_per_loop?: number;      // strip (parallax band): scroll speed (integer >=1)
 }
 
 /** A creature from the cross-bundle palette that can be dropped into a scene. */
@@ -177,6 +178,7 @@ export interface MoverEdit {
   bush_x?: number;     // peek: foreground bush position / size
   bush_y?: number;
   bush_w?: number;
+  tiles_per_loop?: number;  // strip (parallax band): scroll speed (integer >=1)
 }
 
 export interface SaveMoversBody {

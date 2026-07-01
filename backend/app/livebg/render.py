@@ -30,7 +30,7 @@ from .ambient_lottie import (
     write_overlay,
 )
 from .ffmpeg import ensure_ffmpeg
-from .keying import key_green, key_magenta
+from .keying import key_green, key_magenta, make_tileable_x
 from .lottie import lottie_frame_count, render_lottie_frame
 
 W, H, FPS = 1280, 720, 24
@@ -75,6 +75,22 @@ def bush_cutout(assets_dir: Path, cuts_dir: Path, bush_id: str, target_w: int) -
     s = target_w / im.width
     im = im.resize((int(target_w), max(1, round(im.height * s))), Image.Resampling.LANCZOS)
     out = Path(cuts_dir) / f"cut_{bush_id}_{target_w}.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    im.save(out)
+    return str(out)
+
+
+def strip_cutout(assets_dir: Path, cuts_dir: Path, asset_id: str, chroma: str = "magenta",
+                 h_px: int | None = None) -> str:
+    """A seamless tileable PARALLAX STRIP (journey bg) re-derived from the bundled
+    source: key per chroma, resize to frame width, optionally force the band height
+    (``h_px``, a short ground strip), then mirror-tile. Mirror of story-gen-exps
+    strip_cutout, LLM-free."""
+    is_mag = chroma == "magenta"
+    im = (key_magenta if is_mag else key_green)(_read_source(assets_dir, asset_id))
+    im = im.resize((W, int(h_px) if h_px else max(1, im.height)), Image.Resampling.LANCZOS)
+    im = make_tileable_x(im)
+    out = Path(cuts_dir) / f"cut_{asset_id}_strip.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     im.save(out)
     return str(out)
@@ -163,6 +179,12 @@ def spec_to_layers(spec: dict, assets_dir: Path, cuts_dir: Path) -> list:
             layers.append(Snow(snow_dot_png(cuts_dir, tuple(m.get("color", [255, 255, 255]))),
                                count=m.get("count", 30), drift_pct=m.get("drift", 1.3), name=m["id"]))
             continue
+        if kind == "strip":         # a seamless tileable PARALLAX band (journey bg): tiles_per_loop = scroll speed
+            h_px = int(m["h_pct"] / 100.0 * H) if m.get("h_pct") else None  # cap band height (ground = a low strip)
+            sp_path = strip_cutout(assets_dir, cuts_dir, m["id"], m.get("chroma", "magenta"), h_px=h_px)
+            layers.append(Strip(sp_path, y_pct=m.get("y", 50), tiles_per_loop=int(m.get("tiles", m.get("tiles_per_loop", 1))),
+                                axis="x", to_negative=m.get("to_negative", True), name=m["id"]))
+            continue
         if kind == "pulse":         # a stationary cutout whose opacity twinkles
             pp = cutout(assets_dir, cuts_dir, m["id"], m.get("w", 40))
             layers.append(Pulse(pp, m["x"], m["y"], scale=m.get("scale", 1.0), period_s=m.get("period", 3.0) / sp,
@@ -209,7 +231,7 @@ def spec_to_layers(spec: dict, assets_dir: Path, cuts_dir: Path) -> list:
     return fg + layers
 
 
-def render(name: str, base: Image.Image, overlay_path: Path, out_dir: Path, plate_fx=None) -> Path:
+def render(name: str, base: Image.Image, overlay_path: Path, out_dir: Path, plate_fx=None, fps: int = FPS) -> Path:
     data = Path(overlay_path).read_bytes()
     key = f"{name}-{next(_RENDER_SEQ)}"   # unique per call — never replay a stale parse
     total = lottie_frame_count(data, cache_key=key)
@@ -219,7 +241,7 @@ def render(name: str, base: Image.Image, overlay_path: Path, out_dir: Path, plat
     exe = ensure_ffmpeg()
     ff = subprocess.Popen(
         [exe, "-y", "-loglevel", "error", "-f", "rawvideo", "-pixel_format", "rgb24",
-         "-video_size", f"{W}x{H}", "-framerate", str(FPS), "-i", "-",
+         "-video_size", f"{W}x{H}", "-framerate", str(fps), "-i", "-",
          "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p", "-preset", "veryfast", str(out)],
         stdin=subprocess.PIPE,
     )
@@ -246,7 +268,9 @@ def rerender(spec: dict, plate_img: Image.Image, workdir: Path) -> Path:
     base = plate_img.resize((W, H), Image.Resampling.LANCZOS).convert("RGBA")
     layers = spec_to_layers(spec, assets_dir, cuts_dir)
     overlay = workdir / "overlay.json"
-    write_overlay(layers, overlay, w=W, h=H, fps=FPS, loop_s=spec.get("loop_s", 24.0), kf_stride=2)
+    fps = int(spec.get("fps", FPS))   # spec-tunable (journey ground scroll uses 30 / stride 1)
+    write_overlay(layers, overlay, w=W, h=H, fps=fps,
+                  loop_s=spec.get("loop_s", 24.0), kf_stride=int(spec.get("kf_stride", 2)))
     fx = None
     water = spec.get("water")
     if water == "ripple":
@@ -259,4 +283,4 @@ def rerender(spec: dict, plate_img: Image.Image, workdir: Path) -> Path:
         fx = lambda b, f, tot: water_ripple(b, f, tot, mk)  # noqa: E731
     elif water == "warp":
         fx = warp_rgba
-    return render(name, base, overlay, out_dir=workdir, plate_fx=fx)
+    return render(name, base, overlay, out_dir=workdir, plate_fx=fx, fps=fps)

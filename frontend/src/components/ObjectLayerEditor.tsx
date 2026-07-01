@@ -203,17 +203,24 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
     onDirty?.();
   };
 
+  const setTiles = (i: number, v: number) => {
+    setMovers((prev) => prev.map((m, j) => (j === i ? { ...m, tiles_per_loop: v } : m)));
+    setDirty(true);
+    onDirty?.();
+  };
+
   const save = async () => {
     setSaving(true);
     setError(null);
     try {
       const edits: MoverEdit[] = movers
-        .filter((m) => !m.isNew && (m.positionable || m.kind === 'swim'))
+        .filter((m) => !m.isNew && (m.positionable || m.kind === 'swim' || m.kind === 'strip'))
         .map((m) => {
           const e: MoverEdit = { index: m.index, w: m.w };
           if (m.x != null) e.x = Math.round(m.x);
           if (m.y != null) e.y = Math.round(m.y);
           if (SPEEDABLE.has(m.kind)) e.speed = m.speed ?? 1;
+          if (m.kind === 'strip') e.tiles_per_loop = m.tiles_per_loop ?? 1;  // parallax scroll speed
           if (m.kind === 'swim') {
             e.to_left = m.to_left;          // swim facing key
             e.x0 = Math.round(m.x0 ?? 0);
@@ -569,6 +576,21 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
                       className="w-24 align-middle"
                     />
                     <span className="w-8 tabular-nums">{(movers[sel].speed ?? 1).toFixed(2)}×</span>
+                  </label>
+                )}
+                {movers[sel].kind === 'strip' && (
+                  <label className="flex items-center gap-1">
+                    Scroll
+                    <input
+                      type="range"
+                      min={1}
+                      max={6}
+                      step={1}
+                      value={movers[sel].tiles_per_loop ?? 1}
+                      onChange={(e) => setTiles(sel, parseInt(e.target.value, 10))}
+                      className="w-24 align-middle"
+                    />
+                    <span className="w-8 tabular-nums">{movers[sel].tiles_per_loop ?? 1}×</span>
                   </label>
                 )}
                 {FLIPPABLE.has(movers[sel].kind) && (
