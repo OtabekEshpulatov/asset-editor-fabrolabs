@@ -47,9 +47,23 @@ def _read_config(category: str, char: str) -> dict[str, Any]:
         return {}
 
 
+def _read_progress() -> dict[str, dict[str, Any]]:
+    """Live batch progress written by scripts/v5_spritegen_animals.py -> {char: {category, status,
+    done, total}}. Lets the gallery show in-flight chars (with a progress bar) before their sheets
+    exist."""
+    try:
+        raw = minio.download_bytes(f"{SPRITES_V2_PREFIX}_progress.json")
+        doc = json.loads(raw) if raw else {}
+        chars = doc.get("chars") if isinstance(doc, dict) else None
+        return chars if isinstance(chars, dict) else {}
+    except Exception:
+        return {}
+
+
 def catalog(*, include_disabled: bool = False) -> dict[str, Any]:
     """The same ``{kind, total, categories}`` shape the gallery expects, grouped by the category
-    folder. Each char is one item whose ``animation_urls`` maps ``<action>_<view>`` -> sheet URL."""
+    folder. Each char is one item whose ``animation_urls`` maps ``<action>_<view>`` -> sheet URL, plus
+    an optional ``progress`` ({done,total,status}) so in-flight chars show a loader even with 0 sheets."""
     try:
         keys = minio.list_objects(SPRITES_V2_PREFIX)
     except Exception as exc:
@@ -66,12 +80,20 @@ def catalog(*, include_disabled: bool = False) -> dict[str, Any]:
             minio.public_url_for_key(key)
         )
 
+    progress = _read_progress()
+    # Ensure every char the batch knows about has a slot, even with no sheets yet (pending/generating).
+    for char, pr in progress.items():
+        cat = str(pr.get("category") or "")
+        if cat:
+            tree.setdefault(cat, {}).setdefault(char, {})
+
     categories: list[dict[str, Any]] = []
     for category in sorted(tree):
         items: list[dict[str, Any]] = []
         for char in sorted(tree[category]):
             anim_urls = dict(sorted(tree[category][char].items()))
-            if not anim_urls:
+            pr = progress.get(char) or {}
+            if not anim_urls and not pr:
                 continue
             cfg = _read_config(category, char)
             enabled = bool(cfg.get("enabled", True))
@@ -79,16 +101,23 @@ def catalog(*, include_disabled: bool = False) -> dict[str, Any]:
                 continue
             fps = int(cfg.get("fps", 16) or 16)
             default = next((a for a in anim_urls if a.startswith(("idle", "happy"))),
-                           next(iter(anim_urls)))
-            items.append({
+                           next(iter(anim_urls), None))
+            item: dict[str, Any] = {
                 "slug": char,
-                "url": anim_urls[default],
+                "url": anim_urls.get(default) if default else None,
                 "description": str(cfg.get("description") or ""),
                 "enabled": enabled,
                 "animation_urls": anim_urls,
                 "action_fps": {a: fps for a in anim_urls},
                 "action_rev": {a: 0 for a in anim_urls},
-            })
+            }
+            if pr:
+                item["progress"] = {
+                    "done": int(pr.get("done", len(anim_urls))),
+                    "total": int(pr.get("total", 39)),
+                    "status": str(pr.get("status") or ""),
+                }
+            items.append(item)
         if items:
             categories.append({"name": category, "count": len(items), "items": items})
 

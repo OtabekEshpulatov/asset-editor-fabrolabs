@@ -35,6 +35,8 @@ export interface AssetCatalogItem {
   animation_urls?: Record<string, string>;
   action_fps?: Record<string, number>;
   action_rev?: Record<string, number>;
+  // Animations-v2 batch progress (present while a char is still generating).
+  progress?: { done: number; total: number; status: string };
 }
 
 export interface CharacterAction {

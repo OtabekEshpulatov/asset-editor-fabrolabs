@@ -88,6 +88,25 @@ function SpriteCard({
       <div className="break-all text-center text-[11px] leading-tight text-gray-700">
         {item.slug}
       </div>
+      {item.progress && item.progress.status !== 'done' && (
+        <div className="w-full">
+          <div className="h-1.5 w-full overflow-hidden rounded bg-gray-200">
+            <div
+              className={`h-full transition-all ${
+                item.progress.status === 'failed' ? 'bg-red-400' : 'bg-blue-500'
+              }`}
+              style={{
+                width: `${Math.round(
+                  (item.progress.done / Math.max(1, item.progress.total)) * 100,
+                )}%`,
+              }}
+            />
+          </div>
+          <div className="mt-0.5 text-center text-[10px] text-gray-500">
+            {item.progress.done}/{item.progress.total} · {item.progress.status}
+          </div>
+        </div>
+      )}
       {names.length > 1 && (
         <select
           value={anim}
@@ -693,7 +712,10 @@ export default function AssetsPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['asset-catalog', kind, showDisabled],
     queryFn: () => apiV4.getAssetCatalog(kind, showDisabled),
-    staleTime: 5 * 60 * 1000,
+    // Animations v2 is generated live in the background — poll so progress bars advance and new
+    // sheets appear without a manual refresh. Other kinds are static → cache for 5 min.
+    staleTime: kind === 'animation' ? 0 : 5 * 60 * 1000,
+    refetchInterval: kind === 'animation' ? 15000 : false,
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['asset-catalog'] });
