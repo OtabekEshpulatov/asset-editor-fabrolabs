@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app import asset_admin, backgrounds, connection, sprites_v2, videos
+from app import asset_admin, backgrounds, connection, sprites_v2, sprites_v3, videos
 from app.asset_urls import _spritesheet_url, resolve_asset_url
 from app.livebg import service as livebg_service
 from app.catalog import catalog, overrides
@@ -105,6 +105,9 @@ async def asset_catalog(kind: AssetKind, include_disabled: bool = False) -> dict
     if kind == "animation":
         # Animations v2 sprite libraries live under sprites-v2/ — discovered in MinIO.
         return sprites_v2.catalog(include_disabled=include_disabled)
+    if kind == "animation_v3":
+        # Animations v3: a curated subset of v1 characters (manifests/v3_curated.json), no duplication.
+        return sprites_v3.catalog(include_disabled=include_disabled)
     categories_map = _CATEGORY_MAPS[kind]
     categories: list[dict] = []
     total = 0

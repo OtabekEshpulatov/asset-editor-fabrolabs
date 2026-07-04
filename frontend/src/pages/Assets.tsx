@@ -20,6 +20,7 @@ const KIND_TABS: { key: AssetKind; label: string }[] = [
   { key: 'object', label: 'Objects' },
   { key: 'video', label: 'Live BGs' },
   { key: 'animation', label: 'Animations v2' },
+  { key: 'animation_v3', label: 'Animations v3' },
 ];
 
 const ANIM_PREFERENCE = ['idle', 'happy', 'move'];
@@ -235,7 +236,7 @@ function Lightbox({
   onManageActions: () => void;
   onChanged: () => void;
 }) {
-  const isSprite = kind === 'character' || kind === 'animation';
+  const isSprite = kind === 'character' || kind === 'animation' || kind === 'animation_v3';
   const isVideo = kind === 'video';
   const anims = item.animation_urls ?? {};
   const names = Object.keys(anims).sort();
@@ -714,8 +715,8 @@ export default function AssetsPage() {
     queryFn: () => apiV4.getAssetCatalog(kind, showDisabled),
     // Animations v2 is generated live in the background — poll so progress bars advance and new
     // sheets appear without a manual refresh. Other kinds are static → cache for 5 min.
-    staleTime: kind === 'animation' ? 0 : 5 * 60 * 1000,
-    refetchInterval: kind === 'animation' ? 15000 : false,
+    staleTime: kind === 'animation' || kind === 'animation_v3' ? 0 : 5 * 60 * 1000,
+    refetchInterval: kind === 'animation' || kind === 'animation_v3' ? 15000 : false,
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['asset-catalog'] });
@@ -766,7 +767,7 @@ export default function AssetsPage() {
               </button>
             );
           })}
-          {kind !== 'video' && kind !== 'animation' && (
+          {kind !== 'video' && kind !== 'animation' && kind !== 'animation_v3' && (
             <button
               onClick={() => setAdding(true)}
               disabled={!data}
@@ -827,7 +828,7 @@ export default function AssetsPage() {
       )}
 
       {filtered.map((c) =>
-        kind === 'character' || kind === 'animation' ? (
+        kind === 'character' || kind === 'animation' || kind === 'animation_v3' ? (
           <SpriteSection
             key={c.name}
             category={c.name}
@@ -835,7 +836,7 @@ export default function AssetsPage() {
             onOpen={setSelected}
             collapsed={collapsed.has(c.name)}
             onToggleCollapse={() => toggleCollapse(c.name)}
-            hoverToPlay={kind === 'animation'}
+            hoverToPlay={kind === 'character' || kind === 'animation' || kind === 'animation_v3'}
           />
         ) : (
           <section key={c.name} className="space-y-2">
