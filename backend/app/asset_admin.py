@@ -347,6 +347,42 @@ def transform_action(*, slug: str, action: str, flip_h: bool = False,
             "spritesheet": minio.public_url_for_key(sheet_key)}
 
 
+def remove_action_frames(*, slug: str, action: str, remove: list[int]) -> dict:
+    """Delete specific frames from an action's spritesheet — repacks the survivors
+    into a fresh grid, rewrites the atlas (if any), and updates `frame_count`.
+    Overwrites the stored spritesheet/atlas in place and bumps `rev`. Only ever
+    called from the editor's explicit Save action — never implicitly."""
+    entry = catalog.get_character(slug)
+    if entry is None:
+        raise KeyError(slug)
+    if action not in entry.get("animations", []):
+        raise KeyError(action)
+    sheet_key, atlas_key, _ = _action_storage(entry, action)
+    if not sheet_key:
+        raise ValueError(f"action {action!r} has no resolvable spritesheet URL")
+    sheet = minio.download_bytes(sheet_key)
+    if sheet is None:
+        raise ValueError(f"spritesheet for {slug!r}/{action!r} not found in storage")
+    atlas = minio.download_bytes(atlas_key) if atlas_key else None
+
+    new_sheet, new_atlas, new_count = image_transforms.remove_frames(
+        sheet, atlas, frame_count=overrides.action_frame_count(slug, action), remove=remove,
+    )
+    minio.upload_bytes(new_sheet, key=sheet_key, content_type="image/png")
+    if new_atlas is not None and atlas_key:
+        minio.upload_bytes(new_atlas, key=atlas_key, content_type="application/json")
+
+    rev = overrides.action_rev(slug, action) + 1
+    overrides.record_action_config(slug, action, rev=rev, frame_count=new_count)
+    base = str(entry["sprite_base_path"]).strip("/")
+    _patch_action_sidecar(base, action, {"frame_count": new_count})
+    invalidate_search()
+    return {
+        "slug": slug, "action": action, "rev": rev, "frame_count": new_count,
+        "spritesheet": minio.public_url_for_key(sheet_key),
+    }
+
+
 def _transform_character(slug: str, ops: dict) -> dict:
     """Apply the same transform to every action's spritesheet (mirror a whole sprite)."""
     entry = catalog.get_character(slug) or {}

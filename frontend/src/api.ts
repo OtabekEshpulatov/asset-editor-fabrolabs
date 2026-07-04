@@ -322,6 +322,16 @@ export const apiV4 = {
         ...t,
       })
       .then((r) => r.data),
+
+  // Destructive: deletes the given frame indices and repacks the spritesheet.
+  // Called only from an explicit Save after a client-side preview.
+  removeActionFrames: (slug: string, action: string, remove: number[]) =>
+    client
+      .post<{ slug: string; action: string; rev: number; frame_count: number; spritesheet: string }>(
+        '/assets/actions/frames/remove',
+        { slug, action, remove },
+      )
+      .then((r) => r.data),
 };
 
 // --- storage info (read-only; storage is auto-connected from env) -------------

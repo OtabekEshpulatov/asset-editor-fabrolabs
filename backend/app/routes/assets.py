@@ -543,6 +543,23 @@ async def transform_action(body: ActionTransform) -> dict:
         raise _admin_error(exc)
 
 
+class ActionFramesRemove(BaseModel):
+    slug: str
+    action: str
+    remove: list[int]
+
+
+@router.post("/assets/actions/frames/remove")
+async def remove_action_frames(body: ActionFramesRemove) -> dict:
+    """Delete specific frames from an action's spritesheet, repacking the rest
+    into a clean grid. Destructive (overwrites the stored files) — the editor
+    only calls this from an explicit Save, after a client-side preview."""
+    try:
+        return asset_admin.remove_action_frames(slug=body.slug, action=body.action, remove=body.remove)
+    except (KeyError, ValueError) as exc:
+        raise _admin_error(exc)
+
+
 class ActionConfigUpdate(BaseModel):
     slug: str
     action: str

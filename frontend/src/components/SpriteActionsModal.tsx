@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiV4, type CharacterAction, type CharacterActions } from '../api';
 import ConfigViewer from './ConfigViewer';
+import FrameTrimModal from './FrameTrimModal';
 import SpriteCanvas from './SpriteCanvas';
 import { QuickTransform, type Transform } from './TransformControls';
 
@@ -270,6 +271,16 @@ function ActionRow({
   const [desc, setDesc] = useState(action.description);
   const [rename, setRename] = useState(action.name);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [trimming, setTrimming] = useState(false);
+
+  // Keep these in sync with the server value after an out-of-band change (e.g.
+  // trimming frames updates frame_count via a different button/save action).
+  useEffect(() => {
+    setFps(action.fps);
+    setFrameCount(action.frame_count);
+    setDesc(action.description);
+    setRename(action.name);
+  }, [action.fps, action.frame_count, action.description, action.name]);
 
   const run = async (p: Promise<unknown>) => {
     setError(null);
@@ -332,6 +343,14 @@ function ActionRow({
             className="rounded-md border border-purple-300 bg-purple-50 px-2 py-1 text-xs font-medium text-purple-800 hover:bg-purple-100"
           >
             ⇄ copy
+          </button>
+          <button
+            onClick={() => setTrimming(true)}
+            disabled={!action.spritesheet}
+            title="Preview and remove specific frames from this animation"
+            className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-40"
+          >
+            ✂ trim frames
           </button>
           <div className="ml-auto">
             {confirmDelete ? (
@@ -407,6 +426,18 @@ function ActionRow({
 
         <ConfigViewer kind="character" slug={slug} action={action.name} />
       </div>
+
+      {trimming && action.spritesheet && (
+        <FrameTrimModal
+          slug={slug}
+          action={action.name}
+          spritesheetUrl={withRev(action.spritesheet, action.rev)!}
+          fps={action.fps}
+          frameCount={action.frame_count}
+          onClose={() => setTrimming(false)}
+          onSaved={onChanged}
+        />
+      )}
     </div>
   );
 }
