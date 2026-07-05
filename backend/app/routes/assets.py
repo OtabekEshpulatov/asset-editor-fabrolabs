@@ -439,6 +439,7 @@ async def list_character_actions(slug: str) -> dict:
                 "fps": overrides.action_fps(slug, action),
                 "frame_count": overrides.action_frame_count(slug, action),
                 "description": cfg.get("description", ""),
+                "is_3q": bool(cfg.get("is_3q", False)),
                 "rev": overrides.action_rev(slug, action),
             }
         )
@@ -589,6 +590,7 @@ class ActionConfigUpdate(BaseModel):
     description: str | None = None
     fps: int | None = None
     frame_count: int | None = None
+    is_3q: bool | None = None  # marks a 3/4-view action (the "3q" the name used to encode)
 
 
 @router.put("/assets/actions/config")

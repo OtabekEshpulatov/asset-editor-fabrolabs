@@ -470,7 +470,7 @@ def set_action_config(*, slug: str, action: str, fields: dict) -> dict:
         raise KeyError(slug)
     if action not in entry.get("animations", []):
         raise KeyError(action)
-    clean = _clean_config_fields(fields, allow={"enabled", "description", "fps", "frame_count"})
+    clean = _clean_config_fields(fields, allow={"enabled", "description", "fps", "frame_count", "is_3q"})
     overrides.record_action_config(slug, action, **clean)
     base = str(entry["sprite_base_path"]).strip("/")
     _patch_action_sidecar(base, action, clean)
@@ -569,7 +569,7 @@ def _clean_config_fields(fields: dict, *, allow: set[str]) -> dict:
             continue
         if k in ("fps", "frame_count"):
             clean[k] = max(1, int(v))
-        elif k == "enabled":
+        elif k in ("enabled", "is_3q"):
             clean[k] = bool(v)
         else:
             clean[k] = str(v)
