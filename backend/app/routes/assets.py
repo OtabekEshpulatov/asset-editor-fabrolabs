@@ -506,6 +506,26 @@ async def mirror_character_action(body: ActionMirror) -> dict:
         raise _admin_error(exc)
 
 
+class ReconcileFolders(BaseModel):
+    execute: bool = False
+    category: str | None = None   # scope: category prefix, e.g. "animals/birds"
+    only: str | None = None       # scope: one character slug
+    limit: int | None = None      # max moves per call (chunked migration)
+
+
+@router.post("/assets/actions/reconcile-folders")
+async def reconcile_action_folders(body: ReconcileFolders) -> dict:
+    """Sweep for actions whose storage folder != action name. Dry-run by default
+    (returns the move plan); `execute` materializes the moves (folder==name)."""
+    try:
+        return asset_admin.reconcile_action_folders(
+            execute=body.execute, category=body.category,
+            only=body.only, limit=body.limit,
+        )
+    except (KeyError, ValueError) as exc:
+        raise _admin_error(exc)
+
+
 @router.post("/assets/actions/replace")
 async def replace_action_sheet(
     slug: str = Form(...),

@@ -451,6 +451,168 @@ def _transform_character(slug: str, ops: dict) -> dict:
     return {"kind": "character", "slug": slug, "action_rev": revs}
 
 
+def materialize_action_folder(slug: str, action: str) -> dict:
+    """Make the action's storage folder equal ``<sprite_base_path>/<action>/`` so the
+    folder name matches the action name (renames are name-only, so a renamed action
+    otherwise keeps its original folder — e.g. ``sad_3q_right`` living under ``sad/``).
+
+    Order is chosen so a mid-flight failure never orphans the catalog: copy every
+    object from the old folder to the new one (server-side, preserving each relative
+    filename), repoint the catalog so a fresh ``reset_runtime(); apply()`` resolves
+    the action to the new folder (no leftover rename to the old folder, no tombstone
+    shadowing the action), and only then delete the old folder. Per-action config
+    (is_3q / fps / frame_count / description / enabled / rev) is preserved.
+    """
+    entry = catalog.get_character(slug)
+    if entry is None:
+        raise KeyError(slug)
+    if action not in entry.get("animations", []):
+        raise KeyError(action)
+
+    base = str(entry["sprite_base_path"]).strip("/")
+    sheet_key, atlas_key, old_folder = _action_storage(entry, action)
+    if not old_folder:
+        raise ValueError(f"action {action!r} has no resolvable storage folder")
+    new_folder = f"{base}/{action}/"
+    if old_folder == new_folder:
+        return {"slug": slug, "action": action, "moved": False,
+                "folder": new_folder, "reason": "already-matches"}
+
+    # Safety precheck BEFORE any storage mutation: refuse corrupted / ambiguous
+    # rename chains (cyclic, converging, origin/folder mismatch) so a bad catalog
+    # is never made worse. The move only happens on a chain proven clean.
+    old_basename = old_folder.rstrip("/").rsplit("/", 1)[-1]
+    analysis = overrides.analyze_action_folder_move(
+        slug, action, old_folder_basename=old_basename)
+    if not analysis.get("safe"):
+        return {"slug": slug, "action": action, "moved": False,
+                "reason": f"unsafe: {analysis.get('reason')}",
+                "old_folder": old_folder, "new_folder": new_folder}
+
+    # Destination-occupancy guard: if the target folder is CURRENTLY the storage
+    # folder of a *different* action (a leftover duplicate like `move_left_old`
+    # living under `move_left/`), moving into it would clobber/orphan that action.
+    # Skip — a later reconcile pass moves it once the occupant vacates.
+    for other in entry.get("animations", []):
+        if other != action and _action_storage(entry, other)[2] == new_folder:
+            return {"slug": slug, "action": action, "moved": False,
+                    "reason": f"unsafe: destination folder occupied by {other!r}",
+                    "old_folder": old_folder, "new_folder": new_folder}
+
+    # 1) Server-side copy EVERY object under the old folder to the new folder,
+    #    preserving the relative filename (spritesheet.png, atlas.json, config.json,
+    #    and anything else that happens to live there).
+    copied: list[str] = []
+    for src in minio.list_objects(old_folder):
+        rel = src[len(old_folder):]
+        if not rel:  # a folder-placeholder key (old_folder itself) — nothing to copy
+            continue
+        minio.copy_object(src, new_folder + rel)
+        copied.append(new_folder + rel)
+
+    # 2) Repoint the catalog. Derive the new URLs from the OLD basenames so a
+    #    non-standard sheet/atlas filename still resolves after the move.
+    sheet_name = sheet_key.rsplit("/", 1)[-1] if sheet_key else "spritesheet.png"
+    atlas_name = atlas_key.rsplit("/", 1)[-1] if atlas_key else "atlas.json"
+    new_sheet_url = minio.public_url_for_key(new_folder + sheet_name)
+    new_atlas_url = minio.public_url_for_key(new_folder + atlas_name)
+    repoint = overrides.record_materialize_action_folder(
+        slug, action, spritesheet=new_sheet_url, atlas=new_atlas_url,
+        old_folder_basename=old_basename,
+    )
+
+    # 3) Delete the old folder objects LAST (copy + repoint have succeeded).
+    removed = 0
+    try:
+        removed = minio.delete_prefix(old_folder)
+    except Exception as exc:  # storage cleanup is best-effort; catalog is the truth
+        log.warning("materialize_action_folder: old-folder cleanup failed for %s: %r",
+                    old_folder, exc)
+
+    invalidate_search()
+    return {"slug": slug, "action": action, "moved": True,
+            "old_folder": old_folder, "new_folder": new_folder,
+            "copied": len(copied), "deleted": removed, **repoint}
+
+
+def reconcile_action_folders(*, execute: bool = False, category: str | None = None,
+                             only: str | None = None, limit: int | None = None) -> dict:
+    """Plan (and with ``execute`` actually run) folder==name materialization across
+    characters — the sweep counterpart of the per-rename move. Scoped by ``only``
+    (slug) and/or ``category`` (prefix); ``limit`` caps executed moves per call so
+    a large migration can run in verifiable chunks over HTTP."""
+    from app.catalog.static_asset_catalog import CHARACTER_CATALOG, CHARACTER_CATEGORIES
+
+    def _cat(slug: str) -> str:
+        for name, slugs in CHARACTER_CATEGORIES.items():
+            if slug in slugs:
+                return name
+        return ""
+
+    plan: list[dict] = []
+    for slug in sorted(CHARACTER_CATALOG):
+        if only and slug != only:
+            continue
+        if category and not _cat(slug).startswith(category):
+            continue
+        entry = catalog.get_character(slug)
+        if not entry:
+            continue
+        base = str(entry.get("sprite_base_path", "")).strip("/")
+        if not base:
+            continue
+        for action in sorted(entry.get("animations", [])):
+            if not _spritesheet_url((entry.get("animation_urls") or {}).get(action)):
+                continue  # unresolvable URL — nothing to move
+            old_folder = _action_storage(entry, action)[2]
+            new_folder = f"{base}/{action}/"
+            if not old_folder or old_folder == new_folder:
+                continue
+            ob = old_folder.rstrip("/").rsplit("/", 1)[-1]
+            analysis = overrides.analyze_action_folder_move(
+                slug, action, old_folder_basename=ob)
+            skip = None if analysis.get("safe") else analysis.get("reason")
+            if not skip:
+                for other in entry.get("animations", []):
+                    if other != action and _action_storage(entry, other)[2] == new_folder:
+                        skip = f"destination folder occupied by {other!r}"
+                        break
+            plan.append({"slug": slug, "action": action, "old_folder": old_folder,
+                         "new_folder": new_folder, "skip": skip})
+
+    result: dict = {
+        "execute": execute,
+        "mismatched": len(plan),
+        "movable": sum(1 for p in plan if not p["skip"]),
+        "skipped": [{k: p[k] for k in ("slug", "action", "skip")} for p in plan if p["skip"]],
+        "moved": [], "failed": [],
+        "plan": None if execute else plan,
+    }
+    if execute:
+        done = 0
+        for p in plan:
+            if p["skip"]:
+                continue
+            if limit is not None and done >= limit:
+                result["truncated"] = True
+                break
+            try:
+                # materialize re-resolves from the live catalog, so earlier moves in
+                # this same sweep (each refreshes the catalog) can't invalidate later
+                # ones; an already-converged item just no-ops as "already-matches".
+                r = materialize_action_folder(p["slug"], p["action"])
+                result["moved"].append({"slug": p["slug"], "action": p["action"],
+                                        "moved": r.get("moved"),
+                                        "reason": r.get("reason")})
+            except Exception as exc:  # keep sweeping; report per-item failures
+                log.warning("reconcile: move failed for %s/%s: %r",
+                            p["slug"], p["action"], exc)
+                result["failed"].append({"slug": p["slug"], "action": p["action"],
+                                         "error": str(exc)})
+            done += 1
+    return result
+
+
 def rename_action(*, slug: str, old: str, new: str) -> dict:
     _validate_slug(new, what="action name")
     entry = catalog.get_character(slug)
@@ -463,8 +625,16 @@ def rename_action(*, slug: str, old: str, new: str) -> dict:
     if new in entry.get("animations", []):
         raise ValueError(f"action {new!r} already exists on {slug!r}")
     overrides.record_rename_action(slug, old=old, new=new)
+    # Now that the name is `new`, move the storage folder to match. Best-effort:
+    # a storage failure must not undo the (already-recorded) name rename.
+    moved: dict = {"moved": False}
+    try:
+        moved = materialize_action_folder(slug, new)
+    except Exception as exc:  # noqa: BLE001 — the name rename still stands
+        log.warning("rename_action: folder move failed for %s/%s (name rename kept): %r",
+                    slug, new, exc)
     invalidate_search()
-    return {"slug": slug, "old": old, "new": new}
+    return {"slug": slug, "old": old, "new": new, "folder_move": moved}
 
 
 def delete_action(*, slug: str, action: str) -> dict:
