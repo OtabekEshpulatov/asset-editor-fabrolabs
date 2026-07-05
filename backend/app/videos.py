@@ -30,6 +30,7 @@ from app.storage import json_store, minio
 log = logging.getLogger(__name__)
 
 LIVE_PREFIX = "live_backgrounds/"
+INTROS_PREFIX = "intros/"  # per-world intro packs (intros/{world}/{world}_intro.mp4)
 MANIFEST_OBJECT_KEY = "manifests/live_backgrounds_manifest.json"
 MANIFEST_LOCAL_PATH = config.DATA_DIR / "live_backgrounds_manifest.json"
 VIDEO_EXTS = (".mp4", ".webm", ".mov", ".m4v")
@@ -53,20 +54,24 @@ def _video_keys() -> dict[str, str]:
     video's slug — its manifest zones + config survive the move.
     """
     out: dict[str, str] = {}
-    try:
-        keys = minio.list_objects(LIVE_PREFIX)
-    except Exception as exc:
-        log.warning("videos: listing %s failed: %r", LIVE_PREFIX, exc)
-        return {}
-    for key in keys:
-        if key.lower().endswith(VIDEO_EXTS):
-            out[Path(key).stem] = key
+    for prefix in (LIVE_PREFIX, INTROS_PREFIX):
+        try:
+            keys = minio.list_objects(prefix)
+        except Exception as exc:
+            log.warning("videos: listing %s failed: %r", prefix, exc)
+            continue
+        for key in keys:
+            if key.lower().endswith(VIDEO_EXTS):
+                out[Path(key).stem] = key
     return out
 
 
 def _world_of_key(key: str) -> str:
     """The world folder a video lives in: the path segment between the
-    live_backgrounds/ prefix and the filename (``uncategorized`` if flat)."""
+    live_backgrounds/ prefix and the filename (``uncategorized`` if flat).
+    Every intro pack video groups under one ``intros`` gallery category."""
+    if key.startswith(INTROS_PREFIX):
+        return "intros"
     rel = key[len(LIVE_PREFIX):]
     return rel.split("/", 1)[0] if "/" in rel else "uncategorized"
 
