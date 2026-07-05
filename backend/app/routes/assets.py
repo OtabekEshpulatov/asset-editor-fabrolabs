@@ -563,6 +563,25 @@ async def remove_action_frames(body: ActionFramesRemove) -> dict:
         raise _admin_error(exc)
 
 
+class ActionFramesReorder(BaseModel):
+    slug: str
+    action: str
+    # New sequence of source frame indices: omit to delete, repeat to copy, list
+    # in any order to reorder. The general form of frames/remove.
+    order: list[int]
+
+
+@router.post("/assets/actions/frames/reorder")
+async def reorder_action_frames(body: ActionFramesReorder) -> dict:
+    """Rebuild an action's spritesheet as an arbitrary sequence of its own frames
+    (reorder / duplicate / delete). Destructive (overwrites the stored files) —
+    the editor only calls this from an explicit Save, after a client-side preview."""
+    try:
+        return asset_admin.reorder_action_frames(slug=body.slug, action=body.action, order=body.order)
+    except (KeyError, ValueError) as exc:
+        raise _admin_error(exc)
+
+
 class ActionConfigUpdate(BaseModel):
     slug: str
     action: str

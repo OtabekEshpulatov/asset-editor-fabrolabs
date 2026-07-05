@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiV4, type CharacterAction, type CharacterActions } from '../api';
 import ConfigViewer from './ConfigViewer';
-import FrameTrimModal from './FrameTrimModal';
+import FrameEditorModal from './FrameEditorModal';
 import SpriteCanvas from './SpriteCanvas';
 import { QuickTransform, type Transform } from './TransformControls';
 
@@ -271,10 +271,10 @@ function ActionRow({
   const [desc, setDesc] = useState(action.description);
   const [rename, setRename] = useState(action.name);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [trimming, setTrimming] = useState(false);
+  const [editingFrames, setEditingFrames] = useState(false);
 
   // Keep these in sync with the server value after an out-of-band change (e.g.
-  // trimming frames updates frame_count via a different button/save action).
+  // editing frames updates frame_count via a different button/save action).
   useEffect(() => {
     setFps(action.fps);
     setFrameCount(action.frame_count);
@@ -345,12 +345,12 @@ function ActionRow({
             ⇄ copy
           </button>
           <button
-            onClick={() => setTrimming(true)}
+            onClick={() => setEditingFrames(true)}
             disabled={!action.spritesheet}
-            title="Preview and remove specific frames from this animation"
+            title="Reorder, duplicate, or delete frames of this animation (with live preview)"
             className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-40"
           >
-            ✂ trim frames
+            🎞 edit frames
           </button>
           <div className="ml-auto">
             {confirmDelete ? (
@@ -427,14 +427,14 @@ function ActionRow({
         <ConfigViewer kind="character" slug={slug} action={action.name} />
       </div>
 
-      {trimming && action.spritesheet && (
-        <FrameTrimModal
+      {editingFrames && action.spritesheet && (
+        <FrameEditorModal
           slug={slug}
           action={action.name}
           spritesheetUrl={withRev(action.spritesheet, action.rev)!}
           fps={action.fps}
           frameCount={action.frame_count}
-          onClose={() => setTrimming(false)}
+          onClose={() => setEditingFrames(false)}
           onSaved={onChanged}
         />
       )}

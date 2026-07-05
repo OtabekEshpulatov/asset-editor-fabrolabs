@@ -347,11 +347,12 @@ def transform_action(*, slug: str, action: str, flip_h: bool = False,
             "spritesheet": minio.public_url_for_key(sheet_key)}
 
 
-def remove_action_frames(*, slug: str, action: str, remove: list[int]) -> dict:
-    """Delete specific frames from an action's spritesheet — repacks the survivors
-    into a fresh grid, rewrites the atlas (if any), and updates `frame_count`.
-    Overwrites the stored spritesheet/atlas in place and bumps `rev`. Only ever
-    called from the editor's explicit Save action — never implicitly."""
+def _rewrite_action_frames(slug: str, action: str, fn) -> dict:
+    """Shared write path for the frame editors (trim / reorder). Downloads the
+    action's spritesheet (+ atlas), runs `fn(sheet, atlas, frame_count) ->
+    (new_sheet, new_atlas_or_None, new_count)`, overwrites the stored files in
+    place, bumps `rev`, and updates `frame_count`. Only ever called from an
+    explicit editor Save — never implicitly."""
     entry = catalog.get_character(slug)
     if entry is None:
         raise KeyError(slug)
@@ -365,9 +366,7 @@ def remove_action_frames(*, slug: str, action: str, remove: list[int]) -> dict:
         raise ValueError(f"spritesheet for {slug!r}/{action!r} not found in storage")
     atlas = minio.download_bytes(atlas_key) if atlas_key else None
 
-    new_sheet, new_atlas, new_count = image_transforms.remove_frames(
-        sheet, atlas, frame_count=overrides.action_frame_count(slug, action), remove=remove,
-    )
+    new_sheet, new_atlas, new_count = fn(sheet, atlas, overrides.action_frame_count(slug, action))
     minio.upload_bytes(new_sheet, key=sheet_key, content_type="image/png")
     if new_atlas is not None and atlas_key:
         minio.upload_bytes(new_atlas, key=atlas_key, content_type="application/json")
@@ -381,6 +380,30 @@ def remove_action_frames(*, slug: str, action: str, remove: list[int]) -> dict:
         "slug": slug, "action": action, "rev": rev, "frame_count": new_count,
         "spritesheet": minio.public_url_for_key(sheet_key),
     }
+
+
+def remove_action_frames(*, slug: str, action: str, remove: list[int]) -> dict:
+    """Delete specific frames from an action's spritesheet (repack + atlas rewrite +
+    frame_count update). Special case of `reorder_action_frames`."""
+    return _rewrite_action_frames(
+        slug, action,
+        lambda sheet, atlas, fc: image_transforms.remove_frames(
+            sheet, atlas, frame_count=fc, remove=remove
+        ),
+    )
+
+
+def reorder_action_frames(*, slug: str, action: str, order: list[int]) -> dict:
+    """Rebuild an action's spritesheet as an arbitrary sequence of its own frames
+    (reorder / duplicate / delete via `order` = new list of source frame indices).
+    Repacks into a dense row, rewrites the atlas (if any), updates `frame_count`,
+    overwrites the stored files in place and bumps `rev`."""
+    return _rewrite_action_frames(
+        slug, action,
+        lambda sheet, atlas, fc: image_transforms.reorder_frames(
+            sheet, atlas, frame_count=fc, order=order
+        ),
+    )
 
 
 def _transform_character(slug: str, ops: dict) -> dict:

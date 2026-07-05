@@ -332,6 +332,17 @@ export const apiV4 = {
         { slug, action, remove },
       )
       .then((r) => r.data),
+
+  // Destructive: rebuilds the spritesheet as a new sequence of its own frames.
+  // `order` is the new list of SOURCE frame indices — omit to delete, repeat to
+  // copy, list in any order to reorder. Called only from an explicit Save.
+  reorderActionFrames: (slug: string, action: string, order: number[]) =>
+    client
+      .post<{ slug: string; action: string; rev: number; frame_count: number; spritesheet: string }>(
+        '/assets/actions/frames/reorder',
+        { slug, action, order },
+      )
+      .then((r) => r.data),
 };
 
 // --- storage info (read-only; storage is auto-connected from env) -------------

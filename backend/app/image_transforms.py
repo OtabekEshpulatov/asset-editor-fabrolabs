@@ -79,38 +79,57 @@ def _transform_grid(img: Image.Image, *, flip_h: bool, flip_v: bool, rotate: flo
     return out
 
 
-def remove_frames(
-    sheet: bytes, atlas: bytes | None, *, frame_count: int, remove: list[int]
-) -> tuple[bytes, bytes | None, int]:
-    """Delete specific frames from a sprite sheet, repacking the survivors into a
-    single dense row of the same cell size as the source — never a partial grid,
-    since every preview in this app (SpriteCanvas et al.) infers frame count from
-    image dimensions alone (`cols * rows`), not `frame_count`; a partially-filled
-    last row would flash a blank frame on every loop. If an atlas with a `frames`
-    map was supplied, it's regenerated from scratch against the new layout
-    (string-index keys `"0"..str(new_count-1)`); any custom frame names are not
-    preserved, matching how every other sprite in this app is addressed (grid
-    position, not atlas key). Returns (new_sheet_png, new_atlas_json_or_None,
-    new_frame_count).
-    """
+def _sheet_geom(sheet: bytes) -> tuple[Image.Image, int, int, int]:
+    """Open a sprite sheet and infer its frame grid the same way every preview does.
+    Returns (rgba_image, cell_size, cols, capacity=cols*rows)."""
     img = Image.open(BytesIO(sheet)).convert("RGBA")
     w, h = img.size
     fs = FRAME if (w >= FRAME and w % FRAME == 0) else (min(w, h) or FRAME)
     cols = max(1, w // fs)
     rows = max(1, h // fs)
-    capacity = cols * rows
+    return img, fs, cols, cols * rows
+
+
+def _regen_atlas(atlas: bytes | None, frames_meta: dict[str, dict]) -> bytes | None:
+    """Rewrite an atlas's `frames` map against a new layout, preserving its other
+    keys. Only regenerates when the source atlas actually carried a frames map;
+    returns None otherwise (missing/blank/unparseable/atlas-without-frames)."""
+    if not atlas:
+        return None
+    try:
+        meta = json.loads(atlas)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(meta, dict) and "frames" in meta:
+        return json.dumps({**meta, "frames": frames_meta}).encode("utf-8")
+    return None
+
+
+def reorder_frames(
+    sheet: bytes, atlas: bytes | None, *, frame_count: int, order: list[int]
+) -> tuple[bytes, bytes | None, int]:
+    """Rebuild a sprite sheet as an arbitrary new sequence of its own frames.
+
+    `order` is a list of *source* frame indices (0-based into the current sheet):
+    omit an index to delete it, repeat one to copy it, and list them in any
+    sequence to reorder — this is the general operation of which `remove_frames`
+    is a special case. Out-of-range indices are dropped. The chosen frames are
+    packed into a single dense row of the source cell size (never a partial grid,
+    since every preview infers frame count from image dimensions alone — a
+    partially-filled last row would flash a blank frame). Any supplied atlas
+    `frames` map is regenerated for the new layout (`"0"..str(n-1)`). Returns
+    (new_sheet_png, new_atlas_json_or_None, new_frame_count).
+    """
+    img, fs, cols, capacity = _sheet_geom(sheet)
     fc = max(1, min(int(frame_count), capacity))
 
-    drop = {i for i in remove if 0 <= i < fc}
-    if not drop:
-        raise ValueError("no valid frame indices to remove")
-    keep = [i for i in range(fc) if i not in drop]
-    if not keep:
-        raise ValueError("cannot remove every frame")
+    seq = [int(i) for i in order if 0 <= int(i) < fc]
+    if not seq:
+        raise ValueError("no valid frames in the requested order")
 
-    out = Image.new("RGBA", (len(keep) * fs, fs), (0, 0, 0, 0))
+    out = Image.new("RGBA", (len(seq) * fs, fs), (0, 0, 0, 0))
     frames_meta: dict[str, dict] = {}
-    for new_i, old_i in enumerate(keep):
+    for new_i, old_i in enumerate(seq):
         ox, oy = (old_i % cols) * fs, (old_i // cols) * fs
         nx = new_i * fs
         out.paste(img.crop((ox, oy, ox + fs, oy + fs)), (nx, 0))
@@ -118,17 +137,27 @@ def remove_frames(
 
     buf = BytesIO()
     out.save(buf, format="PNG")
+    return buf.getvalue(), _regen_atlas(atlas, frames_meta), len(seq)
 
-    new_atlas: bytes | None = None
-    if atlas:
-        try:
-            meta = json.loads(atlas)
-        except (ValueError, TypeError):
-            meta = None
-        if isinstance(meta, dict) and "frames" in meta:
-            new_atlas = json.dumps({**meta, "frames": frames_meta}).encode("utf-8")
 
-    return buf.getvalue(), new_atlas, len(keep)
+def remove_frames(
+    sheet: bytes, atlas: bytes | None, *, frame_count: int, remove: list[int]
+) -> tuple[bytes, bytes | None, int]:
+    """Delete specific frames — the keep-everything-else special case of
+    `reorder_frames`. Kept as its own entry point (with its own validation
+    messages) for the original trim path. See `reorder_frames` for the repack /
+    atlas-regen behaviour. Returns (new_sheet_png, new_atlas_json_or_None,
+    new_frame_count).
+    """
+    _, _, _, capacity = _sheet_geom(sheet)
+    fc = max(1, min(int(frame_count), capacity))
+    drop = {i for i in remove if 0 <= i < fc}
+    if not drop:
+        raise ValueError("no valid frame indices to remove")
+    keep = [i for i in range(fc) if i not in drop]
+    if not keep:
+        raise ValueError("cannot remove every frame")
+    return reorder_frames(sheet, atlas, frame_count=frame_count, order=keep)
 
 
 def transform_spritesheet(sheet: bytes, atlas: bytes | None, *, flip_h: bool,
