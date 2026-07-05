@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-export type AssetKind = 'character' | 'object' | 'background' | 'video' | 'animation' | 'animation_v3';
+export type AssetKind = 'character' | 'object' | 'background' | 'video' | 'animation' | 'animation_v3' | 'intro';
 
 // --- asset types (subset of story-gen-exps api_v4 used by the editor) --------
 

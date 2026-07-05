@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app import asset_admin, backgrounds, connection, sprites_v2, sprites_v3, videos
+from app import asset_admin, backgrounds, connection, intros, sprites_v2, sprites_v3, videos
 from app.asset_urls import _spritesheet_url, resolve_asset_url
 from app.livebg import service as livebg_service
 from app.catalog import catalog, overrides
@@ -102,6 +102,9 @@ async def asset_catalog(kind: AssetKind, include_disabled: bool = False) -> dict
     if kind == "video":
         # Live mp4 backgrounds aren't in the static catalog — discovered in MinIO.
         return videos.catalog(include_disabled=include_disabled)
+    if kind == "intro":
+        # World intro packs live under intros/{world}/ — discovered in MinIO.
+        return intros.catalog(include_disabled=include_disabled)
     if kind == "animation":
         # Animations v2 sprite libraries live under sprites-v2/ — discovered in MinIO.
         return sprites_v2.catalog(include_disabled=include_disabled)
@@ -407,6 +410,8 @@ async def config_view(slug: str, kind: AssetKind = "character", action: str | No
     try:
         if kind == "video":
             return videos.config_view(slug)
+        if kind == "intro":
+            return intros.config_view(slug)
         return asset_admin.get_config_view(kind=kind, slug=slug, action=action)
     except (KeyError, ValueError) as exc:
         raise _admin_error(exc)
@@ -416,6 +421,8 @@ async def config_view(slug: str, kind: AssetKind = "character", action: str | No
 async def update_asset_config(body: AssetConfigUpdate) -> dict:
     fields = body.model_dump(exclude={"kind", "slug"}, exclude_none=True)
     try:
+        if body.kind == "intro":
+            return intros.set_config(body.slug, **fields)
         return asset_admin.set_asset_config(kind=body.kind, slug=body.slug, fields=fields)
     except (KeyError, ValueError) as exc:
         raise _admin_error(exc)

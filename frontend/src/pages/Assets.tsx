@@ -19,6 +19,7 @@ const KIND_TABS: { key: AssetKind; label: string }[] = [
   { key: 'background', label: 'Backgrounds' },
   { key: 'object', label: 'Objects' },
   { key: 'video', label: 'Live BGs' },
+  { key: 'intro', label: 'Intros' },
   { key: 'animation', label: 'Animations v2' },
   { key: 'animation_v3', label: 'Animations v3' },
 ];
@@ -237,7 +238,7 @@ function Lightbox({
   onChanged: () => void;
 }) {
   const isSprite = kind === 'character' || kind === 'animation' || kind === 'animation_v3';
-  const isVideo = kind === 'video';
+  const isVideo = kind === 'video' || kind === 'intro';
   const anims = item.animation_urls ?? {};
   const names = Object.keys(anims).sort();
   const [anim, setAnim] = useState(
@@ -299,7 +300,7 @@ function Lightbox({
     setEnabled(next);
     setCfgError(null);
     try {
-      if (isVideo) await apiV4.saveVideo(item.slug, { enabled: next });
+      if (kind === 'video') await apiV4.saveVideo(item.slug, { enabled: next });
       else await apiV4.setAssetConfig(kind, item.slug, { enabled: next });
       onChanged();
     } catch (e: any) {
@@ -311,7 +312,7 @@ function Lightbox({
   const saveDesc = async () => {
     setCfgError(null);
     try {
-      if (isVideo) await apiV4.saveVideo(item.slug, { description: desc });
+      if (kind === 'video') await apiV4.saveVideo(item.slug, { description: desc });
       else await apiV4.setAssetConfig(kind, item.slug, { description: desc });
       onChanged();
     } catch (e: any) {
@@ -380,12 +381,12 @@ function Lightbox({
                 Manage actions →
               </button>
             )}
-            {(kind === 'background' || isVideo) && (
+            {(kind === 'background' || kind === 'video') && (
               <Link
-                to={`/${isVideo ? 'videos' : 'backgrounds'}/${encodeURIComponent(item.slug)}`}
+                to={`/${kind === 'video' ? 'videos' : 'backgrounds'}/${encodeURIComponent(item.slug)}`}
                 className="text-blue-600 hover:underline"
               >
-                {isVideo ? 'Edit zones & objects →' : 'Edit zones →'}
+                {kind === 'video' ? 'Edit zones & objects →' : 'Edit zones →'}
               </Link>
             )}
             {rawUrl && (
@@ -849,7 +850,7 @@ export default function AssetsPage() {
             {!collapsed.has(c.name) && (
               <div className="flex flex-wrap gap-2">
                 {c.items.map((item) =>
-                  kind === 'video' ? (
+                  kind === 'video' || kind === 'intro' ? (
                     <VideoCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
                   ) : (
                     <ImageCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
