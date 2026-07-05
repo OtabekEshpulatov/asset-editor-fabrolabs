@@ -347,6 +347,36 @@ def transform_action(*, slug: str, action: str, flip_h: bool = False,
             "spritesheet": minio.public_url_for_key(sheet_key)}
 
 
+def replace_action_sheet(*, slug: str, action: str, spritesheet: bytes, atlas: bytes) -> dict:
+    """Overwrite an EXISTING action's spritesheet + atlas in place (same storage
+    folder), for dropping in a regenerated animation. Bumps `rev` and updates
+    `frame_count` from the new atlas — no rename / delete+add churn (which would
+    tombstone a base action and shadow the re-add). The action must already exist."""
+    entry = catalog.get_character(slug)
+    if entry is None:
+        raise KeyError(slug)
+    if action not in entry.get("animations", []):
+        raise KeyError(action)
+    try:
+        meta = json.loads(atlas)
+    except (ValueError, TypeError):
+        raise ValueError("atlas is not valid JSON")
+    sheet_key, atlas_key, _ = _action_storage(entry, action)
+    if not sheet_key:
+        raise ValueError(f"action {action!r} has no resolvable spritesheet URL")
+    minio.upload_bytes(spritesheet, key=sheet_key, content_type="image/png")
+    if atlas_key:
+        minio.upload_bytes(atlas, key=atlas_key, content_type="application/json")
+    new_count = len((meta or {}).get("frames") or {}) or overrides.action_frame_count(slug, action)
+    rev = overrides.action_rev(slug, action) + 1
+    overrides.record_action_config(slug, action, rev=rev, frame_count=new_count)
+    base = str(entry["sprite_base_path"]).strip("/")
+    _patch_action_sidecar(base, action, {"frame_count": new_count})
+    invalidate_search()
+    return {"slug": slug, "action": action, "rev": rev, "frame_count": new_count,
+            "spritesheet": minio.public_url_for_key(sheet_key)}
+
+
 def _rewrite_action_frames(slug: str, action: str, fn) -> dict:
     """Shared write path for the frame editors (trim / reorder). Downloads the
     action's spritesheet (+ atlas), runs `fn(sheet, atlas, frame_count) ->

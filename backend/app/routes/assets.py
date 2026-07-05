@@ -506,6 +506,24 @@ async def mirror_character_action(body: ActionMirror) -> dict:
         raise _admin_error(exc)
 
 
+@router.post("/assets/actions/replace")
+async def replace_action_sheet(
+    slug: str = Form(...),
+    action: str = Form(...),
+    spritesheet: UploadFile = File(...),
+    atlas: UploadFile = File(...),
+) -> dict:
+    """Overwrite an existing action's spritesheet+atlas in place (regenerated-animation
+    drop-in). Bumps the cache-bust rev and frame_count; no rename/tombstone churn."""
+    try:
+        return asset_admin.replace_action_sheet(
+            slug=slug, action=action,
+            spritesheet=await spritesheet.read(), atlas=await atlas.read(),
+        )
+    except (KeyError, ValueError) as exc:
+        raise _admin_error(exc)
+
+
 class AssetTransform(BaseModel):
     kind: AssetKind
     slug: str
