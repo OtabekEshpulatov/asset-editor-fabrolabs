@@ -20,6 +20,7 @@ const KIND_TABS: { key: AssetKind; label: string }[] = [
   { key: 'object', label: 'Objects' },
   { key: 'video', label: 'Live BGs' },
   { key: 'intro', label: 'Intros' },
+  { key: 'intro_music', label: 'Intro Musics' },
   { key: 'animation', label: 'Animations v2' },
   { key: 'animation_v3', label: 'Animations v3' },
 ];
@@ -195,6 +196,26 @@ function VideoThumb({ url, size = 120 }: { url?: string; size?: number }) {
       className="bg-gray-100 object-cover"
       style={{ width: size, height: size }}
     />
+  );
+}
+
+function AudioCard({ item, onOpen }: { item: AssetCatalogItem; onOpen: () => void }) {
+  return (
+    <div
+      className={`flex w-[220px] flex-col items-center gap-1 rounded-lg border bg-white p-2 ${
+        item.enabled === false ? 'border-red-200 opacity-50' : 'border-gray-200'
+      }`}
+    >
+      {item.url && <audio controls preload="none" src={item.url} className="w-full" />}
+      <button type="button" onClick={onOpen} className="text-[10px] text-blue-600 hover:underline">
+        config
+      </button>
+      {item.enabled === false && <span className="text-[10px] text-red-500">disabled</span>}
+      <div className="break-all text-center text-[11px] leading-tight text-gray-700">{item.slug}</div>
+      {item.description && (
+        <div className="line-clamp-3 text-center text-[10px] leading-tight text-gray-400">{item.description}</div>
+      )}
+    </div>
   );
 }
 
@@ -850,7 +871,9 @@ export default function AssetsPage() {
             {!collapsed.has(c.name) && (
               <div className="flex flex-wrap gap-2">
                 {c.items.map((item) =>
-                  kind === 'video' || kind === 'intro' ? (
+                  kind === 'intro_music' ? (
+                    <AudioCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
+                  ) : kind === 'video' || kind === 'intro' ? (
                     <VideoCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
                   ) : (
                     <ImageCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
