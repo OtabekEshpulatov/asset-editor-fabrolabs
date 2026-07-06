@@ -412,6 +412,11 @@ async def config_view(slug: str, kind: AssetKind = "character", action: str | No
             return videos.config_view(slug)
         if kind == "intro":
             return intros.config_view(slug)
+        # The animation galleries (Animations / Animations v3) re-present existing
+        # character sprites, so an asset-level config request there is really a
+        # request for the underlying character's config.
+        if action is None and kind in ("animation", "animation_v3"):
+            kind = "character"
         return asset_admin.get_config_view(kind=kind, slug=slug, action=action)
     except (KeyError, ValueError) as exc:
         raise _admin_error(exc)
