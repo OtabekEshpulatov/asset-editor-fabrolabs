@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -21,8 +22,35 @@ from app.storage import minio
 log = logging.getLogger(__name__)
 
 
-def read_json(*, key: str, local_path: Path) -> Any:
-    """Return the document (MinIO canonical), falling back to the local file."""
+def file_sig(local_path: Path) -> tuple[int, int] | None:
+    """(mtime_ns, size) of a local cache file, or None if it does not exist yet.
+
+    The cross-worker "this document changed" signal: every ``write_json`` rewrites
+    the local file atomically, moving its signature, so a peer worker (which shares
+    the container volume) detects the change with a single cheap stat(). Size is
+    folded in so a second write within one mtime tick (coarse-granularity volumes)
+    is still seen. Shared by the overrides sidecar sync and the background manifest
+    cache so the coherence-critical signature is defined in exactly one place."""
+    try:
+        st = os.stat(local_path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def read_json(*, key: str, local_path: Path, prefer_local: bool = False) -> Any:
+    """Return the document (MinIO canonical), falling back to the local file.
+
+    `prefer_local` inverts the order: return the local cache if it is present and
+    parseable, only reaching for MinIO when there is no usable local copy. Used by
+    the cross-worker auto-sync, whose change signal IS the local file's mtime — so
+    the reload must read that same file, not the (possibly-behind-on-a-failed-
+    upload) MinIO object it is watching a proxy for.
+    """
+    if prefer_local:
+        local = _read_local(local_path)
+        if local is not None:
+            return local
     try:
         data = minio.download_bytes(key)
     except Exception as exc:  # connection failure, auth, etc. -> use local

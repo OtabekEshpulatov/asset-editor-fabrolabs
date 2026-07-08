@@ -260,9 +260,14 @@ def mirror_action(*, slug: str, source: str, new: str | None = None) -> dict:
             t_atlas = f"{base}/{target}/atlas.json"
         minio.upload_bytes(mirrored, key=t_sheet, content_type="image/png")
         minio.upload_bytes(atlas, key=t_atlas, content_type="application/json")
+        # Bump rev so the regenerated sheet cache-busts on reload (the URL is
+        # otherwise unchanged), and so the persist bumps the sidecar signal the
+        # other worker polls — matching transform_action / replace_action_sheet.
+        rev = overrides.action_rev(slug, target) + 1
+        overrides.record_action_config(slug, target, rev=rev)
         invalidate_search()
         return {
-            "slug": slug, "action": target, "source": source, "refreshed": True,
+            "slug": slug, "action": target, "source": source, "refreshed": True, "rev": rev,
             "spritesheet": minio.public_url_for_key(t_sheet),
             "atlas": minio.public_url_for_key(t_atlas),
         }

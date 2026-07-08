@@ -102,4 +102,5 @@ def reload_all() -> None:
     base_snapshot.restore()       # live catalog dicts -> pristine base library
     overrides.reset_runtime()     # drop in-memory enabled/description/action config
     overrides.apply()             # re-layer the connected bucket's adds/renames/config
+    overrides.mark_synced()       # baseline the sidecar mtime for cross-worker auto-sync
     backgrounds.load_manifest.cache_clear()

@@ -118,9 +118,11 @@ def _empty() -> dict[str, Any]:
     return data
 
 
-def _load() -> dict[str, Any]:
+def _load(*, prefer_local: bool = False) -> dict[str, Any]:
     config.seed_if_missing(OVERRIDES_PATH, "asset_overrides.json")
-    raw = json_store.read_json(key=OVERRIDES_OBJECT_KEY, local_path=OVERRIDES_PATH)
+    raw = json_store.read_json(
+        key=OVERRIDES_OBJECT_KEY, local_path=OVERRIDES_PATH, prefer_local=prefer_local
+    )
     data = _empty()
     if isinstance(raw, dict):
         for kind in ("object", "background", "character"):
@@ -146,6 +148,68 @@ def _save(data: dict[str, Any]) -> None:
         local_path=OVERRIDES_PATH,
         dumps=lambda d: json.dumps(d, indent=2).encode("utf-8"),
     )
+    # This worker's in-memory overlay now matches the file it just wrote, so it
+    # must NOT re-layer on its own next request (only pick up OTHER workers' writes).
+    mark_synced()
+
+
+# --- cross-worker coherence --------------------------------------------------
+# The editor runs 2 uvicorn workers, each holding its OWN copy of the catalog /
+# config dicts. A mutation handled by one worker updates that worker's dicts and
+# the shared sidecar, but the other worker keeps serving its stale copy — so a
+# deleted/copied action flickers depending on which worker answers. Every persist
+# rewrites the local sidecar atomically (json_store), so its (mtime, size) is a
+# cheap cross-process "the overlay changed" signal: each worker records the
+# signature it last applied and re-layers the moment the file moves ahead of it.
+# This keeps the actions list (and gallery) always consistent with storage — no
+# manual /api/storage-reload, no stale cache. Size is folded in so a second write
+# within the same mtime tick (coarse-granularity volumes) is still detected.
+_UNSET = object()
+_applied_sig: tuple[int, int] | None = None
+
+
+def _sidecar_sig() -> tuple[int, int] | None:
+    """(mtime_ns, size) of the local sidecar, or None if it does not exist yet."""
+    return json_store.file_sig(OVERRIDES_PATH)
+
+
+def mark_synced(sig: object = _UNSET) -> None:
+    """Record that this worker's in-memory overlay matches the on-disk sidecar.
+    Called after every persist and after a full (re)load. Pass the signature the
+    reload was based on (captured BEFORE the read) so a write landing mid-reload is
+    re-detected next request rather than being masked; omit it to stat afresh."""
+    global _applied_sig
+    _applied_sig = _sidecar_sig() if sig is _UNSET else sig  # type: ignore[assignment]
+
+
+def sync_from_disk_if_changed() -> bool:
+    """Re-layer the in-memory catalog + config from the sidecar iff another worker
+    (or environment) persisted a change since this worker last applied it. Returns
+    True when a reload happened.
+
+    Cheap in the common case — a single stat() of the local sidecar; the full
+    re-layer runs only when the signature actually moved. Restores the pristine
+    base library first, then re-applies the (newer) sidecar: the same clean
+    re-layer ``connection.reload_all()`` performs, so pre-corrupted rename chains
+    resolve identically to a fresh process (a plain reset+apply is not idempotent
+    for them). Reads the LOCAL sidecar (``prefer_local``) — the same file whose
+    signature triggered us, so a swallowed MinIO upload can't feed us stale data.
+
+    The signature is captured ONCE, before the read, and recorded as the applied
+    signature: if a concurrent write bumps the file during the re-layer, the stored
+    signature stays behind it and the next request re-syncs (a harmless redundant
+    reload) instead of latching onto stale content.
+    """
+    sig = _sidecar_sig()
+    if sig == _applied_sig:
+        return False
+    from app.catalog import base_snapshot
+
+    base_snapshot.restore()
+    reset_runtime()
+    apply(prefer_local=True)
+    mark_synced(sig)
+    return True
 
 
 # --- in-memory mutation (shared by apply() and the public record_* helpers) ---
@@ -205,9 +269,13 @@ def _mem_delete_action(slug: str, name: str) -> None:
         actions.pop(name, None)
 
 
-def apply() -> None:
-    """Re-apply the sidecar onto the in-memory catalog (idempotent per process)."""
-    data = _load()
+def apply(*, prefer_local: bool = False) -> None:
+    """Re-apply the sidecar onto the in-memory catalog (idempotent per process).
+
+    `prefer_local` reads the local sidecar cache first (used by the cross-worker
+    auto-sync, whose change signal is that local file); the default reads the
+    MinIO-canonical copy first (startup / manual reload)."""
+    data = _load(prefer_local=prefer_local)
     for kind in ("object", "background", "character"):
         section = data[kind]
         for entry in section["added"]:
@@ -542,5 +610,6 @@ def record_materialize_action_folder(
     from app.catalog import base_snapshot
     base_snapshot.restore()
     reset_runtime()
-    apply()
+    apply(prefer_local=True)  # _save just wrote the local sidecar; read it, not a lagging MinIO
+    mark_synced()
     return summary

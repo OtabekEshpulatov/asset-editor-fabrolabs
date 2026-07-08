@@ -32,7 +32,27 @@ def _require_storage() -> None:
         raise HTTPException(status_code=428, detail="storage not configured")
 
 
-router = APIRouter(prefix="/api/v4", dependencies=[Depends(_require_storage)])
+async def _sync_overrides() -> None:
+    """Before any asset request, pick up catalog/config changes another worker
+    persisted (delete/copy/rename/enable/…), so this worker never serves a stale
+    actions list. Cheap: a single stat() unless the sidecar actually moved.
+
+    MUST be async so the (rare) re-layer runs on the event loop, NOT a threadpool
+    thread. It clears+rebuilds the shared catalog dicts in place; the read handlers
+    iterate those same dicts. On the event loop the rebuild is atomic w.r.t. those
+    handlers (no ``await`` inside it, and the reload reads the LOCAL sidecar so it
+    never blocks on network). A sync def here would run in a worker thread and race
+    concurrent readers → ``dictionary changed size during iteration``. Best-effort:
+    a sync failure just leaves this worker as fresh as it already was."""
+    try:
+        overrides.sync_from_disk_if_changed()
+    except Exception as exc:  # noqa: BLE001 — coherence is best-effort, never fatal
+        log.warning("overrides auto-sync failed: %r", exc)
+
+
+router = APIRouter(
+    prefix="/api/v4", dependencies=[Depends(_require_storage), Depends(_sync_overrides)]
+)
 
 
 def _admin_error(exc: Exception):

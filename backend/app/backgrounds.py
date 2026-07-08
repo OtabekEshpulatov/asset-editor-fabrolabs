@@ -104,13 +104,34 @@ def _clamp_to_stage(x: float, y: float) -> tuple[float, float]:
     return round(cx, 2), round(cy, 2)
 
 
-@lru_cache(maxsize=1)
-def load_manifest() -> dict[str, dict[str, Any]]:
+@lru_cache(maxsize=4)
+def _load_manifest_cached(_sig: tuple[int, int] | None) -> dict[str, dict[str, Any]]:
     config.seed_if_missing(MANIFEST_PATH, "backgrounds_manifest.json")
     raw = json_store.read_json(key=MANIFEST_OBJECT_KEY, local_path=MANIFEST_PATH)
     if not isinstance(raw, dict):
         return {}
     return {str(key): value for key, value in raw.items() if isinstance(value, dict)}
+
+
+def _manifest_sig() -> tuple[int, int] | None:
+    """(mtime_ns, size) of the local manifest cache — the cross-worker change
+    signal so a zone/description edit on one uvicorn worker is picked up by the
+    other. Every write rewrites this file (json_store), moving its signature."""
+    return json_store.file_sig(MANIFEST_PATH)
+
+
+def load_manifest() -> dict[str, dict[str, Any]]:
+    """Background manifest, auto-refreshed when the local cache file changes so the
+    two uvicorn workers stay coherent after a zone/description/add edit. Keyed on
+    the file signature: a moved signature is a fresh cache entry (re-read), so a
+    write handled by the OTHER worker no longer serves stale zones here — the same
+    cross-worker staleness the character-action sidecar sync fixes, one gallery
+    over. ``load_manifest.cache_clear`` still clears this worker's copy eagerly."""
+    return _load_manifest_cached(_manifest_sig())
+
+
+# Preserve the existing eager-clear call sites (save/normalize/rebuild/create).
+load_manifest.cache_clear = _load_manifest_cached.cache_clear  # type: ignore[attr-defined]
 
 
 def _read_manifest_doc() -> dict[str, Any]:
