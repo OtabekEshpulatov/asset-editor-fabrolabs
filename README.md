@@ -1,7 +1,7 @@
 # asset-editor
 
 A standalone tool for editing the fairytale asset library — sprites, backgrounds,
-and objects stored in an S3 / MinIO bucket. It's the asset-management UI extracted
+and objects stored in an S3-compatible bucket (RustFS). It's the asset-management UI extracted
 from `story-gen-exps` into a self-contained Docker app you can run whenever you
 need to curate assets, independent of the rest of the pipeline.
 
@@ -23,19 +23,17 @@ reads that bucket — including `story-gen-exps` — sees the changes immediatel
 ## Run it
 
 ```bash
-cp .env.example .env        # optional — only to change the port
+cp .env.example .env        # then fill in the RustFS access/secret keys
 docker compose up --build
 ```
 
-Open <http://localhost:8080>. On first load you'll get a **Connect storage**
-screen — enter your S3 / MinIO endpoint, access key, secret, and bucket, then
-**Test & Connect**. The connection is saved to the `asset-editor-data` volume and
-restored on the next start.
+Open <http://localhost:8080>. Storage auto-connects on startup from the `MINIO_*`
+env vars in `.env` (names kept for compatibility — any S3-compatible store works;
+`S3_*` equivalents are also accepted). The default endpoint is the dev-station
+RustFS over Tailscale: `http://100.72.195.22:9002`, bucket `fairytale-assets`.
 
-- Reaching a MinIO running on your host machine: use
-  `http://host.docker.internal:9000` as the endpoint.
-- Switch buckets any time via **change** in the header; **disconnect** clears the
-  saved connection.
+- Reaching a store running on your host machine instead: use
+  `http://host.docker.internal:<port>` as the endpoint.
 
 Runs on Linux, macOS (Intel + Apple Silicon), and Windows (Docker Desktop / WSL2).
 
@@ -44,13 +42,13 @@ Runs on Linux, macOS (Intel + Apple Silicon), and Windows (Docker Desktop / WSL2
 A **single image** runs the whole app: the FastAPI backend (uvicorn) serves the
 API under `/api`, a `/storage/{bucket}/{key}` **read-proxy** that streams asset
 bytes from the connected bucket using the saved credentials (so the browser never
-needs direct MinIO access), **and** the built React frontend (static files + SPA
+needs direct storage access), **and** the built React frontend (static files + SPA
 fallback). No nginx, no second container.
 
 The base catalog ships in the image (`backend/app/catalog/static_asset_catalog.py`);
 user additions/renames/config are layered from the bucket's override sidecar and
-reloaded when you switch buckets. There is **no** bundled MinIO and **no** semantic
-search — the editor connects out to whatever bucket you point it at.
+reloaded when you switch buckets. There is **no** bundled storage server and **no**
+semantic search — the editor connects out to whatever bucket you point it at.
 
 ## Publish to a registry
 

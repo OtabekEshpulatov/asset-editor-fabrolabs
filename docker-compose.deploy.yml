@@ -22,8 +22,9 @@ services:
     volumes:
       - asset_editor_data:/data
     extra_hosts:
-      # Reach MinIO published on the dev-station host's :9000 from inside the
-      # container via http://host.docker.internal:9000 (host-gateway on Linux).
+      # Storage is the RustFS on this host, reached via its tailnet address
+      # (http://100.72.195.22:9002). The mapping below is only needed if
+      # MINIO_ENDPOINT_URL points at http://host.docker.internal:<port> instead.
       - "host.docker.internal:host-gateway"
     deploy:
       resources:

@@ -5,7 +5,7 @@ services:
     environment:
       ASSET_EDITOR_DATA_DIR: /data
       # Storage is auto-connected from these (no in-app connection step).
-      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL:-http://host.docker.internal:9000}
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL:-http://100.72.195.22:9002}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET:-fairytale-assets}
@@ -13,8 +13,9 @@ services:
       - asset-editor-data:/data
     ports:
       - "${ASSET_EDITOR_PORT:-8080}:8000"
-    # Lets the container reach a MinIO running on the host via
-    # http://host.docker.internal:9000 (Docker Desktop; mapping added for Linux).
+    # Storage default is the dev-station RustFS over Tailscale. The mapping below
+    # is only needed if you point MINIO_ENDPOINT_URL at a store on the Docker
+    # host via http://host.docker.internal:<port> (mapping added for Linux).
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
