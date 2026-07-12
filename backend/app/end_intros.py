@@ -18,7 +18,7 @@ from app.storage import json_store, minio
 log = logging.getLogger(__name__)
 
 INTROS_PREFIX = "intros/"
-END_FILE = "end_bg.mp4"
+END_STEM = "end_bg"  # end_bg.mp4, end_bg2.mp4, ... — one card each
 MANIFEST_OBJECT_KEY = "manifests/end_intros_manifest.json"
 MANIFEST_LOCAL_PATH = config.DATA_DIR / "end_intros_manifest.json"
 
@@ -32,9 +32,11 @@ def _video_keys() -> dict[str, str]:
         log.warning("end_intros: listing %s failed: %r", INTROS_PREFIX, exc)
         return {}
     for key in keys:
-        if key.endswith("/" + END_FILE):
+        fn = key.rsplit("/", 1)[-1]
+        if fn.startswith(END_STEM) and fn.endswith(".mp4"):
             world = key[len(INTROS_PREFIX):].split("/", 1)[0]
-            out[f"{world}_end"] = key
+            suffix = fn[len(END_STEM):-len(".mp4")]  # "" | "2" | ...
+            out[f"{world}_end{suffix}"] = key
     return out
 
 
