@@ -36,8 +36,8 @@ def _video_keys() -> dict[str, str]:
         return {}
     for key in keys:
         if key.lower().endswith(VIDEO_EXTS):
-            if Path(key).stem == "end_bg":
-                continue  # world END cards live in their own kind (end_intros.py)
+            if Path(key).stem.startswith("end_bg"):
+                continue  # world END cards (end_bg*.mp4) live in their own kind (end_intros.py)
             out[Path(key).stem] = key
     return out
 
