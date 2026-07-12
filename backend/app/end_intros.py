@@ -1,18 +1,15 @@
-"""World intro packs (mp4): discover ``intros/{world}/*.mp4`` in the bucket.
+"""World END cards (mp4): discover ``intros/{world}/end_bg.mp4`` in the bucket.
 
-Intros are a separate asset kind from live backgrounds: each world publishes a
-pack under ``intros/{world}/`` ({world}_intro_*.mp4 variants plus song.mp3 /
-sting_bg.png / meta.json used by story-gen's runtime assembler). The gallery
-groups them by world, like live backgrounds. Per-video config (description,
-enabled) lives in ``manifests/intros_manifest.json`` — no zones: intros are
-cinematics, characters never stand in them.
+Each world publishes ONE goodnight end-card clip inside its intro pack (a
+sleeping resident, the lower-center left open for the story hero composited at
+runtime by story-gen). The gallery groups them by world like intros. Per-video
+config (description, enabled) lives in ``manifests/end_intros_manifest.json``.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from app import config
@@ -21,24 +18,23 @@ from app.storage import json_store, minio
 log = logging.getLogger(__name__)
 
 INTROS_PREFIX = "intros/"
-MANIFEST_OBJECT_KEY = "manifests/intros_manifest.json"
-MANIFEST_LOCAL_PATH = config.DATA_DIR / "intros_manifest.json"
-VIDEO_EXTS = (".mp4", ".webm", ".mov", ".m4v")
+END_FILE = "end_bg.mp4"
+MANIFEST_OBJECT_KEY = "manifests/end_intros_manifest.json"
+MANIFEST_LOCAL_PATH = config.DATA_DIR / "end_intros_manifest.json"
 
 
 def _video_keys() -> dict[str, str]:
-    """Map slug (filename stem) -> object key under the ``intros/`` prefix."""
+    """Map slug (``{world}_end``) -> the world's end_bg.mp4 object key."""
     out: dict[str, str] = {}
     try:
         keys = minio.list_objects(INTROS_PREFIX)
     except Exception as exc:
-        log.warning("intros: listing %s failed: %r", INTROS_PREFIX, exc)
+        log.warning("end_intros: listing %s failed: %r", INTROS_PREFIX, exc)
         return {}
     for key in keys:
-        if key.lower().endswith(VIDEO_EXTS):
-            if Path(key).stem == "end_bg":
-                continue  # world END cards live in their own kind (end_intros.py)
-            out[Path(key).stem] = key
+        if key.endswith("/" + END_FILE):
+            world = key[len(INTROS_PREFIX):].split("/", 1)[0]
+            out[f"{world}_end"] = key
     return out
 
 
@@ -79,12 +75,12 @@ def catalog(*, include_disabled: bool = False) -> dict[str, Any]:
     categories = [{"name": w, "count": len(items), "items": items}
                   for w, items in sorted(by_world.items())]
     total = sum(len(c["items"]) for c in categories)
-    return {"kind": "intro", "total": total, "categories": categories}
+    return {"kind": "intro_end", "total": total, "categories": categories}
 
 
 def _view(slug: str, key: str, entry: dict[str, Any]) -> dict[str, Any]:
     return {
-        "kind": "intro",
+        "kind": "intro_end",
         "slug": slug,
         "action": None,
         "world": _world_of_key(key),
@@ -97,7 +93,7 @@ def _view(slug: str, key: str, entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def config_view(slug: str) -> dict[str, Any]:
-    """Read-only config for one intro — same flat shape as videos.config_view."""
+    """Read-only config for one end card — same flat shape as intros.config_view."""
     key = _video_keys().get(slug)
     if key is None:
         raise KeyError(slug)
@@ -110,8 +106,7 @@ def set_config(slug: str, *, enabled: bool | None = None, description: str | Non
     if key is None:
         raise KeyError(slug)
     doc = _read_manifest()
-    entry = doc.get(slug)
-    entry = dict(entry) if isinstance(entry, dict) else {}
+    entry = doc.get(slug) if isinstance(doc.get(slug), dict) else {}
     if enabled is not None:
         entry["enabled"] = bool(enabled)
     if description is not None:

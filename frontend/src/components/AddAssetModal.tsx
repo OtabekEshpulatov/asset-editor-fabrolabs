@@ -11,6 +11,7 @@ const KIND_LABEL: Record<AssetKind, string> = {
   animation: 'animation v2', // no add-flow (discovered from sprites-v2/); here for type completeness
   animation_v3: 'animation v3', // no add-flow (curated subset); here for type completeness
   intro: 'world intro', // no add-flow (published by story-gen intro pipeline); here for type completeness
+  intro_end: 'world end card', // no add-flow (published by story-gen intro pipeline); here for type completeness
   intro_music: 'intro music', // no add-flow (generated song pool); here for type completeness
 };
 

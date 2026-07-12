@@ -20,6 +20,7 @@ const KIND_TABS: { key: AssetKind; label: string }[] = [
   { key: 'object', label: 'Objects' },
   { key: 'video', label: 'Live BGs' },
   { key: 'intro', label: 'Intros' },
+  { key: 'intro_end', label: 'The End Intros' },
   { key: 'intro_music', label: 'Intro Musics' },
   { key: 'animation', label: 'Animations v2' },
   { key: 'animation_v3', label: 'Animations v3' },
@@ -259,7 +260,7 @@ function Lightbox({
   onChanged: () => void;
 }) {
   const isSprite = kind === 'character' || kind === 'animation' || kind === 'animation_v3';
-  const isVideo = kind === 'video' || kind === 'intro';
+  const isVideo = kind === 'video' || kind === 'intro' || kind === 'intro_end';
   const anims = item.animation_urls ?? {};
   const names = Object.keys(anims).sort();
   const [anim, setAnim] = useState(
@@ -873,7 +874,7 @@ export default function AssetsPage() {
                 {c.items.map((item) =>
                   kind === 'intro_music' ? (
                     <AudioCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
-                  ) : kind === 'video' || kind === 'intro' ? (
+                  ) : kind === 'video' || kind === 'intro' || kind === 'intro_end' ? (
                     <VideoCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
                   ) : (
                     <ImageCard key={item.slug} item={item} onOpen={() => setSelected(item)} />
