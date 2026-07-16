@@ -15,8 +15,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.storage import minio
-
 SPEC = "spec.json"
 PLATE = "plate.png"
 
@@ -27,6 +25,8 @@ def bundle_prefix(video_key: str) -> str:
 
 
 def read_spec(video_key: str) -> dict | None:
+    from app.storage import minio
+
     raw = minio.download_bytes(bundle_prefix(video_key) + SPEC)
     if raw is None:
         return None
@@ -38,6 +38,8 @@ def read_spec(video_key: str) -> dict | None:
 
 
 def write_spec(video_key: str, spec: dict) -> None:
+    from app.storage import minio
+
     minio.upload_bytes(
         json.dumps(spec, indent=1).encode("utf-8"),
         key=bundle_prefix(video_key) + SPEC,
@@ -62,6 +64,8 @@ def needed_source_ids(spec: dict) -> list[str]:
 def download_to_workdir(video_key: str, spec: dict, workdir: Path) -> None:
     """Populate `workdir/plate.png` + `workdir/assets/{id}.png` from the bucket bundle.
     A missing plate or source is a hard error (we must never fall through to a model)."""
+    from app.storage import minio
+
     pref = bundle_prefix(video_key)
     workdir = Path(workdir)
     (workdir / "assets").mkdir(parents=True, exist_ok=True)
@@ -79,6 +83,8 @@ def download_to_workdir(video_key: str, spec: dict, workdir: Path) -> None:
 def cutout_preview_urls(video_key: str, ids: list[str]) -> dict[str, str]:
     """Public URLs of the keyed cutout previews the bundle shipped (one listing call).
     Used only to show the cutout image in the editor; missing previews degrade to a box."""
+    from app.storage import minio
+
     pref = bundle_prefix(video_key) + "cuts/"
     try:
         present = {Path(k).stem: minio.public_url_for_key(k) for k in minio.list_objects(pref)}
@@ -93,6 +99,8 @@ def scan_global_sources() -> tuple[dict[str, str], dict[str, str]]:
     """Across EVERY scene bundle, the union of placeable creatures: returns
     ({id: assets/{id}.png key}, {id: cuts/{id}.png key}) from a single listing. The first
     occurrence of an id wins — every bundle's source of a shared creature is identical."""
+    from app.storage import minio
+
     sources: dict[str, str] = {}
     cuts: dict[str, str] = {}
     try:
@@ -113,6 +121,8 @@ def ensure_source(video_key: str, asset_id: str, sources: dict[str, str], cuts: 
     """Make sure THIS bundle has the green/magenta SOURCE for `asset_id` (copying it in from
     another bundle if needed) so the LLM-free render can key it. Also best-effort copies the
     cutout preview so the editor shows it after reload. Returns False if no source exists anywhere."""
+    from app.storage import minio
+
     pref = bundle_prefix(video_key)
     dst = f"{pref}assets/{asset_id}.png"
     if not minio.object_exists(dst):
