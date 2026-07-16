@@ -5,24 +5,31 @@ import { apiV4, type RelationNode, type RelationRoute } from '../api';
 /**
  * Live BG v3 — relation map for one world.
  *
- * Left: the world graph — every background as a live thumbnail, every relation
- * as a line (gray = path, dashed teal = vista "seen in the distance",
- * amber + door = enter). Click a node to inspect it.
+ * LAYERED FLOW layout (the "subway map" style used by flowchart tools like
+ * dagre / React Flow — the most readable form for small DAG-ish graphs):
+ * - connected components stack as separate bands (day chain, night chain…);
+ * - inside a band, nodes sit in LEFT→RIGHT columns by walk order;
+ * - every route is an ARROW in its authored direction (all routes are
+ *   two-way for stories; the arrow shows the natural direction — downstream,
+ *   inward — so "what comes after what" reads at a glance).
  *
- * Right: the selected background with EXIT DOTS overlaid at the exact
- * `center_pct` where each route leaves the frame — you see precisely where on
- * the picture every neighbor connects.
+ * Click a node → right panel shows the frame with EXIT DOTS at the exact
+ * `center_pct` where each route leaves the picture.
  */
 
-const CANVAS_W = 1000;
-const CANVAS_H = 560;
+const COL_W = 250;  // column pitch
+const ROW_H = 158;  // row pitch
+const PAD_X = 100;  // canvas padding (room for half a card)
+const PAD_Y = 88;
+const CARD_W = 132; // node card width (thumb 120x68 + padding)
+
 const TOD_ICON: Record<string, string> = { day: '☀️', dusk: '🌆', night: '🌙' };
 
-function edgeStyle(r: RelationRoute): { stroke: string; dash?: string; icon?: string } {
-  if (r.relation === 'enter') return { stroke: '#d97706', icon: '🚪' };
-  if (r.portal === 'vista') return { stroke: '#0d9488', dash: '6 5', icon: '👁' };
-  if (r.portal === 'vehicle') return { stroke: '#7c3aed', dash: '2 4', icon: '🚀' };
-  return { stroke: '#9ca3af' };
+function edgeStyle(r: RelationRoute): { stroke: string; dash?: string; icon?: string; marker: string } {
+  if (r.relation === 'enter') return { stroke: '#d97706', icon: '🚪', marker: 'url(#arrow-amber)' };
+  if (r.portal === 'vista') return { stroke: '#0d9488', dash: '7 5', icon: '👁', marker: 'url(#arrow-teal)' };
+  if (r.portal === 'vehicle') return { stroke: '#7c3aed', dash: '2 4', icon: '🚀', marker: 'url(#arrow-violet)' };
+  return { stroke: '#9ca3af', marker: 'url(#arrow-gray)' };
 }
 
 function shortName(slug: string, worldPrefixes: string[]): string {
@@ -31,65 +38,89 @@ function shortName(slug: string, worldPrefixes: string[]): string {
   return s.replace(/_/g, ' ');
 }
 
-/** Deterministic force layout in a fixed CANVAS_W x CANVAS_H space. */
+/** Layered left-to-right layout; connected components become stacked bands. */
 function useLayout(nodes: RelationNode[], routes: RelationRoute[]) {
   return useMemo(() => {
-    const n = nodes.length;
-    const pos = new Map<string, { x: number; y: number }>();
-    if (!n) return pos;
-    const R = Math.min(CANVAS_W, CANVAS_H) * 0.38;
-    nodes.forEach((node, i) => {
-      const a = (2 * Math.PI * i) / n - Math.PI / 2;
-      pos.set(node.slug, {
-        x: CANVAS_W / 2 + R * Math.cos(a),
-        y: CANVAS_H / 2 + R * Math.sin(a),
-      });
-    });
-    const edges = routes
-      .filter((r) => pos.has(r.from) && pos.has(r.to))
-      .map((r) => [r.from, r.to] as const);
-    const SPRING = 190; // desired edge length
-    for (let iter = 0; iter < 320; iter++) {
-      const t = 1 - iter / 320; // cooling
-      // pairwise repulsion
-      for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) {
-          const a = pos.get(nodes[i].slug)!;
-          const b = pos.get(nodes[j].slug)!;
-          let dx = a.x - b.x;
-          let dy = a.y - b.y;
-          const d2 = Math.max(dx * dx + dy * dy, 1);
-          const d = Math.sqrt(d2);
-          const f = (14000 / d2) * t;
-          dx = (dx / d) * f;
-          dy = (dy / d) * f;
-          a.x += dx; a.y += dy;
-          b.x -= dx; b.y -= dy;
+    const slugs = nodes.map((n) => n.slug);
+    const known = new Set(slugs);
+    const edges = routes.filter((r) => known.has(r.from) && known.has(r.to));
+
+    // undirected components
+    const comp = new Map<string, number>();
+    let nComp = 0;
+    for (const s of slugs) {
+      if (comp.has(s)) continue;
+      const stack = [s];
+      comp.set(s, nComp);
+      while (stack.length) {
+        const u = stack.pop()!;
+        for (const r of edges) {
+          const v = r.from === u ? r.to : r.to === u ? r.from : null;
+          if (v && !comp.has(v)) {
+            comp.set(v, nComp);
+            stack.push(v);
+          }
         }
       }
-      // spring attraction along edges
-      for (const [fa, fb] of edges) {
-        const a = pos.get(fa)!;
-        const b = pos.get(fb)!;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const d = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
-        const f = ((d - SPRING) / d) * 0.05 * t;
-        a.x += dx * f; a.y += dy * f;
-        b.x -= dx * f; b.y -= dy * f;
-      }
-      // keep inside the canvas (leave room for the card itself)
-      for (const p of pos.values()) {
-        p.x = Math.min(Math.max(p.x, 90), CANVAS_W - 90);
-        p.y = Math.min(Math.max(p.y, 70), CANVAS_H - 78);
-      }
+      nComp++;
     }
-    return pos;
+
+    // column = longest authored-direction path from any root (relaxation)
+    const depth = new Map<string, number>(slugs.map((s) => [s, 0]));
+    for (let i = 0; i < slugs.length; i++) {
+      let changed = false;
+      for (const r of edges) {
+        const d = depth.get(r.from)! + 1;
+        if (d > depth.get(r.to)!) {
+          depth.set(r.to, d);
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+
+    const pos = new Map<string, { x: number; y: number }>();
+    let yOffset = 0;
+    let width = 0;
+    const bands: { y: number; height: number }[] = [];
+    for (let ci = 0; ci < nComp; ci++) {
+      const members = slugs.filter((s) => comp.get(s) === ci);
+      const maxD = Math.max(...members.map((s) => depth.get(s)!));
+      const cols: string[][] = Array.from({ length: maxD + 1 }, () => []);
+      for (const s of members) cols[depth.get(s)!].push(s);
+      const maxRows = Math.max(...cols.map((c) => c.length));
+
+      // order rows by the average row of already-placed neighbors (barycenter)
+      const rowOf = new Map<string, number>();
+      cols.forEach((col, di) => {
+        if (di > 0) {
+          const bary = (s: string) => {
+            const ps = edges
+              .filter((r) => (r.to === s && rowOf.has(r.from)) || (r.from === s && rowOf.has(r.to)))
+              .map((r) => rowOf.get(r.to === s ? r.from : r.to)!);
+            return ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : col.indexOf(s);
+          };
+          col.sort((a, b) => bary(a) - bary(b));
+        }
+        col.forEach((s, i) => rowOf.set(s, i));
+      });
+
+      const bandH = PAD_Y * 2 + (maxRows - 1) * ROW_H;
+      cols.forEach((col, di) => {
+        col.forEach((s, i) => {
+          const y = yOffset + PAD_Y + (i + (maxRows - col.length) / 2) * ROW_H;
+          pos.set(s, { x: PAD_X + di * COL_W, y });
+        });
+      });
+      width = Math.max(width, PAD_X * 2 + maxD * COL_W);
+      bands.push({ y: yOffset, height: bandH });
+      yOffset += bandH;
+    }
+    return { pos, width: Math.max(width, 640), height: Math.max(yOffset, 300), bands };
   }, [nodes, routes]);
 }
 
-/** Static FIRST FRAME of the mp4 (the `#t=` media fragment makes the browser
- * seek + paint it with metadata-only preload); plays only while hovered. */
+/** Static FIRST FRAME of the mp4; plays only while hovered. */
 function Thumb({ url, w, h }: { url: string | null; w: number; h: number }) {
   if (!url) {
     return (
@@ -129,18 +160,16 @@ export default function RelationWorldSection({
   });
   const nodes = data?.nodes ?? [];
   const routes = data?.routes ?? [];
-  const pos = useLayout(nodes, routes);
+  const { pos, width, height } = useLayout(nodes, routes);
   const [selected, setSelected] = useState<string | null>(null);
   const sel = nodes.find((x) => x.slug === selected) ?? null;
 
-  // every world uses a shared slug prefix (forest_, fk_, …) — strip for labels
   const prefixes = useMemo(() => {
     const first = nodes[0]?.slug ?? '';
     const p = first.includes('_') ? first.split('_')[0] + '_' : '';
     return p ? [p] : [];
   }, [nodes]);
 
-  // the selected node's "doors": for each incident route, the endpoint ON this node
   const exits = useMemo(() => {
     if (!sel) return [];
     return routes
@@ -180,104 +209,99 @@ export default function RelationWorldSection({
       {!collapsed && (
         <>
           <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-500">
-            <span><span className="mr-1 inline-block h-0.5 w-6 bg-gray-400 align-middle" />path (walk)</span>
+            <span>→ arrows show the natural walk order (all routes work BOTH ways)</span>
+            <span><span className="mr-1 inline-block h-0.5 w-6 bg-gray-400 align-middle" />path</span>
             <span>
-              <svg className="mr-1 inline align-middle" width="24" height="4"><line x1="0" y1="2" x2="24" y2="2" stroke="#0d9488" strokeWidth="2" strokeDasharray="6 5" /></svg>
-              vista — seen in the distance
+              <svg className="mr-1 inline align-middle" width="24" height="4"><line x1="0" y1="2" x2="24" y2="2" stroke="#0d9488" strokeWidth="2" strokeDasharray="7 5" /></svg>
+              vista
             </span>
-            <span><span className="mr-1 inline-block h-0.5 w-6 bg-amber-600 align-middle" />🚪 enter — goes inside</span>
-            <span>■ = indoors · ☀️/🌆/🌙 = time of day</span>
-            <span className="text-gray-400">click a background to see WHERE each relation leaves the frame</span>
+            <span><span className="mr-1 inline-block h-0.5 w-6 bg-amber-600 align-middle" />🚪 enter</span>
+            <span>☀️/🌆/🌙 time of day · click a bg to see WHERE each exit sits</span>
           </div>
 
           {isLoading && <div className="py-8 text-sm text-gray-500">Loading graph…</div>}
           {error != null && <div className="py-4 text-sm text-red-600">Failed to load graph: {String(error)}</div>}
 
           {data && (
-            <div className="flex flex-wrap gap-4">
-              {/* ── the map ─────────────────────────────────────────────── */}
-              <div
-                className="relative min-w-[640px] flex-1 overflow-hidden rounded-lg border border-gray-200 bg-white"
-                style={{ aspectRatio: `${CANVAS_W} / ${CANVAS_H}` }}
-              >
-                <svg
-                  className="absolute inset-0 h-full w-full"
-                  viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-                  preserveAspectRatio="none"
-                >
-                  {routes.map((r) => {
-                    const a = pos.get(r.from);
-                    const b = pos.get(r.to);
-                    if (!a || !b) return null;
-                    const st = edgeStyle(r);
-                    const dim = neighborSet && !(neighborSet.has(r.from) && neighborSet.has(r.to));
-                    const active =
-                      selected != null && (r.from === selected || r.to === selected);
+            <div className="flex flex-wrap items-start gap-4">
+              {/* ── the flow map (scrolls horizontally if needed) ─────────── */}
+              <div className="min-w-[640px] flex-1 overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                <div className="relative" style={{ width, height }}>
+                  <svg className="absolute inset-0" width={width} height={height}>
+                    <defs>
+                      {[['gray', '#9ca3af'], ['teal', '#0d9488'], ['amber', '#d97706'], ['violet', '#7c3aed']].map(([id, color]) => (
+                        <marker key={id} id={`arrow-${id}`} viewBox="0 0 10 10" refX="9" refY="5"
+                                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                          <path d="M 0 1 L 9 5 L 0 9 z" fill={color} />
+                        </marker>
+                      ))}
+                    </defs>
+                    {routes.map((r) => {
+                      const a = pos.get(r.from);
+                      const b = pos.get(r.to);
+                      if (!a || !b) return null;
+                      const st = edgeStyle(r);
+                      const dim = neighborSet && !(neighborSet.has(r.from) && neighborSet.has(r.to));
+                      const active = selected != null && (r.from === selected || r.to === selected);
+                      // anchor at card edges, curve gently left→right
+                      const x1 = a.x + CARD_W / 2;
+                      const x2 = b.x - CARD_W / 2 - 8;
+                      const midX = (x1 + x2) / 2;
+                      const d = `M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${b.y}, ${x2} ${b.y}`;
+                      return (
+                        <g key={r.id} opacity={dim ? 0.15 : 1}>
+                          <path d={d} fill="none" stroke={st.stroke}
+                                strokeWidth={active ? 3.5 : 2.5}
+                                strokeDasharray={st.dash} markerEnd={st.marker}>
+                            <title>{`${r.from} ↔ ${r.to} (${r.relation === 'enter' ? 'enter' : r.portal})`}</title>
+                          </path>
+                          {st.icon && (
+                            <text x={midX} y={(a.y + b.y) / 2 - 7} textAnchor="middle" fontSize="13"
+                                  style={{ pointerEvents: 'none' }}>
+                              {st.icon}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+
+                  {nodes.map((n) => {
+                    const p = pos.get(n.slug);
+                    if (!p) return null;
+                    const isSel = selected === n.slug;
+                    const dim = neighborSet && !neighborSet.has(n.slug);
                     return (
-                      <g key={r.id} opacity={dim ? 0.18 : 1}>
-                        <line
-                          x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                          stroke={st.stroke}
-                          strokeWidth={active ? 3.5 : 2}
-                          strokeDasharray={st.dash}
-                        >
-                          <title>{`${r.from} ↔ ${r.to} (${r.relation === 'enter' ? 'enter' : r.portal})`}</title>
-                        </line>
-                        {st.icon && (
-                          <text
-                            x={(a.x + b.x) / 2}
-                            y={(a.y + b.y) / 2 + 4}
-                            textAnchor="middle"
-                            fontSize="13"
-                            style={{ pointerEvents: 'none' }}
-                          >
-                            {st.icon}
-                          </text>
-                        )}
-                      </g>
+                      <button
+                        key={n.slug}
+                        type="button"
+                        onClick={() => setSelected(isSel ? null : n.slug)}
+                        className={[
+                          'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm transition',
+                          isSel ? 'z-10 border-blue-500 ring-2 ring-blue-300' : 'border-gray-200 hover:border-blue-300',
+                        ].join(' ')}
+                        style={{ left: p.x, top: p.y, width: CARD_W, opacity: dim ? 0.3 : 1 }}
+                      >
+                        <div className="relative overflow-hidden rounded">
+                          <Thumb url={n.url} w={120} h={68} />
+                          <span className="absolute left-0.5 top-0.5 rounded bg-black/55 px-1 text-[9px] text-white">
+                            {TOD_ICON[n.tod] ?? ''}{n.indoor ? ' ■' : ''}
+                          </span>
+                        </div>
+                        <span className="w-full truncate text-center text-[10px] leading-tight text-gray-700">
+                          {shortName(n.slug, prefixes)}
+                        </span>
+                      </button>
                     );
                   })}
-                </svg>
-
-                {nodes.map((n) => {
-                  const p = pos.get(n.slug);
-                  if (!p) return null;
-                  const isSel = selected === n.slug;
-                  const dim = neighborSet && !neighborSet.has(n.slug);
-                  return (
-                    <button
-                      key={n.slug}
-                      type="button"
-                      onClick={() => setSelected(isSel ? null : n.slug)}
-                      className={[
-                        'absolute flex w-[124px] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm transition',
-                        isSel ? 'z-10 border-blue-500 ring-2 ring-blue-300' : 'border-gray-200 hover:border-blue-300',
-                      ].join(' ')}
-                      style={{
-                        left: `${(p.x / CANVAS_W) * 100}%`,
-                        top: `${(p.y / CANVAS_H) * 100}%`,
-                        opacity: dim ? 0.35 : 1,
-                      }}
-                    >
-                      <div className="relative overflow-hidden rounded">
-                        <Thumb url={n.url} w={112} h={63} />
-                        <span className="absolute left-0.5 top-0.5 rounded bg-black/55 px-1 text-[9px] text-white">
-                          {TOD_ICON[n.tod] ?? ''}{n.indoor ? ' ■' : ''}
-                        </span>
-                      </div>
-                      <span className="w-full truncate text-center text-[10px] leading-tight text-gray-700">
-                        {shortName(n.slug, prefixes)}
-                      </span>
-                    </button>
-                  );
-                })}
+                </div>
               </div>
 
               {/* ── selected background: exits marked on the frame ───────── */}
               <div className="w-[400px] shrink-0 space-y-2 rounded-lg border border-gray-200 bg-white p-3">
                 {!sel ? (
                   <div className="grid h-full min-h-[220px] place-items-center px-6 text-center text-sm text-gray-400">
-                    Click a background on the map — its exits (doors, paths, vistas)
+                    Click a background on the map — its exits (paths, doors, vistas)
                     will be marked right on the frame.
                   </div>
                 ) : (
