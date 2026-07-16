@@ -1,7 +1,7 @@
 # Fantasy Relation Background Pilot Design
 
 **Date:** 2026-07-16
-**Status:** Design approved; implementation waits for specification review
+**Status:** Design approved; implementation in progress
 **Projects:** `story-gen-exps` and `asset-editor-fabrolabs`
 
 ## 1. Purpose
@@ -149,14 +149,14 @@ Version 1 shape:
       "exit": {
         "zone": "floor",
         "screen_zone": "right_edge",
-        "center_pct": [88, 58],
-        "landmark_ids": ["castle_path"]
+        "center_pct": [88, 68],
+        "landmark_ids": ["east_meadow_edge"]
       },
       "entry": {
         "zone": "floor",
-        "screen_zone": "left_edge",
-        "center_pct": [12, 58],
-        "landmark_ids": ["meadow_path"]
+        "screen_zone": "left_third",
+        "center_pct": [30, 62],
+        "landmark_ids": ["meadow_branch"]
       }
     }
   ]
@@ -165,7 +165,7 @@ Version 1 shape:
 
 Required route fields are `id`, `from`, `to`, explicit `bidirectional`, `relation`, `exit`, and `entry`. Each endpoint contains a logical asset zone, a symbolic screen zone, a normalized percentage center, and optional stable landmark identifiers.
 
-`center_pct` uses a top-left origin and contains `[x, y]` values in the inclusive range `0..100`. `screen_zone` reuses the engine's `ScreenZone` symbols, but pilot route entries are restricted to `left_edge`, `left_third`, `right_third`, or `right_edge`; `center` is invalid for an entrance. Left zones map deterministically to `hero_entrance_side="left"` and right zones to `"right"`. The endpoint's `zone` must name a real zone declared by that background's active manifest entry.
+`center_pct` uses a top-left origin and contains `[x, y]` values in the inclusive range `0..100`. `screen_zone` reuses the engine's full `ScreenZone` vocabulary, including `center`. Left and right zones provide a symbolic fallback entrance side, while the exact incoming `center_pct` is the hero's first route-origin point and the opening-iris center. This supports real center doors and arches already present in the anchor plates. The endpoint's `zone` must name a real zone declared by that background's active manifest entry.
 
 The pilot supports only one route per ordered pair. The engine can infer that route from two consecutive background slugs, so the authoring model does not need to emit `route_id`. If distinct doors later connect the same pair, the story schema and authoring flow can be versioned deliberately.
 
@@ -214,17 +214,20 @@ Planned additive fields, all with legacy-safe defaults:
 - incoming and outgoing route identifiers;
 - `hero_entrance_side`, using the field already present in staging;
 - optional `hero_exit_side`;
+- `hero_route_origin_pct`;
 - `transition_in_center_pct`;
 - `transition_out_center_pct`.
 
 Behavior:
 
-1. The incoming route's entry screen zone determines the hero entrance side through the fixed left/right mapping above.
-2. The current left-side entrance remains the fallback when route data is absent.
-3. The opening iris centers near the incoming route's entry landmark.
-4. The closing iris centers near the outgoing route's exit landmark.
-5. Route transition centers are inert when per-scene transitions are disabled.
-6. The pilot does not force an end-of-scene walking exit. Exit metadata initially controls the closing iris only.
+1. The incoming route's entry `center_pct` seeds the hero's first walk from the visible door, arch, path, or frame edge toward the normal stage position; its screen zone supplies only a left/right fallback if no exact center is available.
+2. This entrance is prepended to the first actual hero row even when its authored action is non-locomotion; the entrance uses a walking pose, then the authored action resumes after the hero reaches normal staging.
+3. A journey/treadmill scene keeps its hero centered and suppresses route-origin movement, while route IDs and iris metadata remain available.
+4. The current left-side entrance remains the fallback when route data is absent.
+5. The opening iris centers near the incoming route's entry landmark.
+6. The closing iris centers near the outgoing route's exit landmark.
+7. Route transition centers are inert when per-scene transitions are disabled.
+8. The pilot does not force an end-of-scene walking exit. Exit metadata initially controls the closing iris only.
 
 With the flag off or no graph route available, output must retain the current defaults and remain compatible with old serialized run data.
 
@@ -233,6 +236,26 @@ With the flag off or no graph route available, output must retain the current de
 ### Route endpoint matrix gate
 
 Before any Gemini request, sample clear frames from every related existing live background and complete all thirteen edges' endpoint matrix: route ID, both background slugs, real manifest zone, permitted screen zone, exact `center_pct`, and stable visible landmark ID on each side. Metadata may only target a visibly plausible path, door, arch, or frame edge already present in an existing plate; it must not invent an invisible exit. If an anchor lacks a compatible endpoint, revise that edge or the connector composition before generation. This matrix becomes the source for the final graph JSON and is reviewed together with the prompts.
+
+The reviewed pilot matrix is:
+
+| Route ID | A endpoint | B endpoint |
+|---|---|---|
+| `meadow_crossroads_path` | Meadow: `floor`, `right_edge`, `[88, 68]`, `east_meadow_edge` | Crossroads: `floor`, `left_third`, `[30, 62]`, `meadow_branch` |
+| `market_crossroads_path` | Market: `floor`, `right_edge`, `[90, 68]`, `market_east_street` | Crossroads: `floor`, `left_edge`, `[10, 63]`, `market_branch` |
+| `garden_crossroads_path` | Garden: `floor`, `left_edge`, `[8, 70]`, `garden_outer_path` | Crossroads: `floor`, `right_edge`, `[90, 62]`, `garden_branch` |
+| `crossroads_gate_path` | Crossroads: `floor`, `right_third`, `[70, 58]`, `castle_gate_branch` | Gate: `floor`, `left_edge`, `[8, 70]`, `approach_road_foreground` |
+| `gate_courtyard_entry` | Gate: `floor`, `center`, `[50, 61]`, `drawbridge_gate` | Courtyard: `floor`, `left_edge`, `[8, 70]`, `outer_gate_frame_edge` |
+| `courtyard_hall_entry` | Courtyard: `floor`, `center`, `[50, 60]`, `main_palace_door` | Grand Hall: `floor`, `center`, `[50, 58]`, `courtyard_double_doors` |
+| `courtyard_cloister_arch` | Courtyard: `floor`, `right_edge`, `[90, 65]`, `east_arcade_edge` | Cloister: `floor`, `left_edge`, `[10, 62]`, `courtyard_arch` |
+| `garden_cloister_arch` | Garden: `floor`, `right_third`, `[68, 55]`, `garden_castle_arch` | Cloister: `floor`, `right_edge`, `[90, 62]`, `garden_arch` |
+| `cloister_hall_arch` | Cloister: `floor`, `right_third`, `[70, 60]`, `hall_arch` | Grand Hall: `floor`, `left_third`, `[30, 60]`, `cloister_arch` |
+| `cloister_library_door` | Cloister: `floor`, `left_third`, `[30, 60]`, `library_side_door` | Library: `ground`, `left_third`, `[27, 62]`, `left_gallery_stair` |
+| `hall_library_door` | Grand Hall: `floor`, `right_third`, `[70, 60]`, `library_door` | Library: `ground`, `right_third`, `[73, 62]`, `right_gallery_stair` |
+| `hall_throne_door` | Grand Hall: `floor`, `left_edge`, `[10, 60]`, `throne_room_door` | Throne Room: `ground`, `center`, `[50, 62]`, `red_carpet_door` |
+| `hall_ballroom_stair` | Grand Hall: `floor`, `right_edge`, `[90, 60]`, `ballroom_stair_door` | Ballroom: `ground`, `left_third`, `[32, 61]`, `sweeping_stair` |
+
+Connector endpoint positions are deliberately unique within each high-degree hub. Crossroads orders Market, Meadow, Gate, and Garden from left to right at approximately 10%, 30%, 70%, and 90%. Grand Hall orders Throne, Cloister, Courtyard, Library, and Ballroom at approximately 10%, 30%, 50%, 70%, and 90%. Cloister orders Courtyard, Library, Hall, and Garden at approximately 10%, 30%, 70%, and 90%. The exact values may move slightly after the generated plates are selected, but the route identities and left-to-right ordering must remain unchanged; any adjustment must be recorded in this matrix and the graph sidecar together.
 
 ### Shared visual lock
 
@@ -251,13 +274,13 @@ All three new backgrounds must match the existing Fantasy Kingdom rather than me
 
 References: Hilltop Meadow, Village Market, Castle Gate & Moat.
 
-Composition: a readable four-way exterior junction with separate branches for the timber-roof market, hilltop meadow, royal garden, and recognizable blue-roofed gate and moat. The four traversable branches occupy the four permitted left/right screen zones rather than center, while the lower foreground remains playable.
+Composition: a readable four-way exterior junction with separate branches for the timber-roof market, hilltop meadow, royal garden, and recognizable blue-roofed gate and moat. Every branch has a distinct visible threshold and endpoint center, while the lower foreground remains playable.
 
 ### Castle Grand Hall
 
 References: Castle Courtyard, Throne Room, Great Magic Library.
 
-Composition: a wide interior hub with courtyard doors, a distinct cloister arch/side gallery, a visually distinct throne-room door, a library door, and a ballroom stair or door. Every traversable entrance sits in an allowed left or right screen zone even if a non-traversable visual focal point remains near center. Door colors, arch materials, and floor patterns become stable reciprocal landmarks.
+Composition: a wide interior hub with courtyard doors, a distinct cloister arch/side gallery, a visually distinct throne-room door, a library door, and a ballroom stair or door. Center doors are allowed and receive exact route-origin coordinates; door colors, arch materials, and floor patterns become stable reciprocal landmarks.
 
 ### Castle Cloister
 
@@ -276,7 +299,7 @@ Use an isolated pilot helper, planned as `scripts/v5_fantasy_relation_bgs.py`, t
 3. Generate two independent candidates per node, six candidates total.
 4. Cache each candidate separately and never overwrite an existing slug or cache.
 5. Stop for visual selection before publishing.
-6. Feed the chosen plate into the deterministic `v5_livebg` renderer.
+6. Complete the final eleven-plate endpoint audit, then feed the chosen plate into `asset-editor-fabrolabs`'s deterministic no-LLM renderer through an explicit backend root; never import `scripts/v5_livebg.py`, whose import-time dotenv behavior violates credential isolation.
 7. Add only subtle code-driven movers such as flags, clouds, or sparkles; no WAN animation.
 8. Produce a 1920×1080 H.264 MP4 at 24 FPS, approximately 24 seconds long, plus the complete source bundle.
 9. Publish only the selected pilot asset through a targeted single-scene path.
@@ -293,6 +316,8 @@ The Gemini API key is read only from `GEMINI_API_KEY` in the process environment
 - Partial storage/network failure: do not enable the graph until all three assets are registered and retrievable.
 - Existing asset conflict: abort rather than overwrite.
 - Never invoke a broad publisher that could transcode, replace, or delete legacy assets.
+- A HEAD check is only an early diagnostic; every final remote key must use a storage-level atomic create-if-absent operation, with MP4 created last. A race conflict aborts without overwrite.
+- Targeted manifest registration records the source SHA-256, takes an exclusive OS lock, rechecks that SHA under the lock, validates the full new manifest, and performs a same-directory atomic replace. Any mismatch aborts.
 
 Publishing order is plate selection → deterministic render → bundle verification → targeted upload → manifest rebuild/registration → process/cache refresh → graph enablement.
 
@@ -328,6 +353,8 @@ Run the existing engine and video regression suites after the focused tests.
 ### Story-level verification
 
 Generate ten Fantasy sample stories with the feature enabled. All must be graph-valid, use simple paths, and collectively contain at least five distinct collapsed background-slug sequences. At least three graph nodes must have degree three or greater.
+
+After all three connector plates are selected, rerun the endpoint audit across all eleven plates and all twenty-six directed endpoint views. The immutable final review receipt binds the selected image hashes, final graph SHA-256, exact endpoint coordinates, and reviewer approval. Rendering, publishing, registration, and graph activation require this final receipt; the pre-generation audit is an intent review for anchors and planned connector positions only.
 
 ### Visual and media QA
 
