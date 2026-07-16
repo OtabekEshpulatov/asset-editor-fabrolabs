@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiV4, type RelationNode, type RelationRoute } from '../api';
 
@@ -88,25 +88,9 @@ function useLayout(nodes: RelationNode[], routes: RelationRoute[]) {
   }, [nodes, routes]);
 }
 
-/** In-view autoplaying muted looping thumb (same discipline as the v1 grid). */
+/** Static FIRST FRAME of the mp4 (the `#t=` media fragment makes the browser
+ * seek + paint it with metadata-only preload); plays only while hovered. */
 function Thumb({ url, w, h }: { url: string | null; w: number; h: number }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting) {
-          setShow(true);
-          el.play().catch(() => {});
-        } else el.pause();
-      },
-      { rootMargin: '100px' },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
   if (!url) {
     return (
       <div className="grid place-items-center bg-gray-200 text-[9px] text-gray-500" style={{ width: w, height: h }}>
@@ -116,13 +100,13 @@ function Thumb({ url, w, h }: { url: string | null; w: number; h: number }) {
   }
   return (
     <video
-      ref={ref}
-      src={show ? url : undefined}
+      src={`${url}#t=0.04`}
       muted
       loop
       playsInline
-      preload="none"
-      onLoadedData={(e) => e.currentTarget.play().catch(() => {})}
+      preload="metadata"
+      onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
+      onMouseLeave={(e) => e.currentTarget.pause()}
       className="bg-gray-100 object-cover"
       style={{ width: w, height: h }}
     />
