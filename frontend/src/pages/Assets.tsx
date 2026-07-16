@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiV4, type AssetCatalogItem, type AssetKind } from '../api';
 import AddAssetModal from '../components/AddAssetModal';
+import RelationWorldSection from '../components/RelationGraph';
 import SpriteActionsModal from '../components/SpriteActionsModal';
 import ConfigViewer from '../components/ConfigViewer';
 import SpriteCanvas, { FPS } from '../components/SpriteCanvas';
@@ -20,6 +21,7 @@ const KIND_TABS: { key: AssetKind; label: string }[] = [
   { key: 'object', label: 'Objects' },
   { key: 'video', label: 'Live BGs' },
   { key: 'video_v2', label: 'Live BG v2' },
+  { key: 'video_v3', label: 'Live BG v3 (relation)' },
   { key: 'intro', label: 'Intros' },
   { key: 'intro_end', label: 'The End Intros' },
   { key: 'intro_music', label: 'Intro Musics' },
@@ -791,7 +793,7 @@ export default function AssetsPage() {
               </button>
             );
           })}
-          {kind !== 'video' && kind !== 'animation' && kind !== 'animation_v3' && (
+          {kind !== 'video' && kind !== 'video_v3' && kind !== 'animation' && kind !== 'animation_v3' && (
             <button
               onClick={() => setAdding(true)}
               disabled={!data}
@@ -852,7 +854,14 @@ export default function AssetsPage() {
       )}
 
       {filtered.map((c) =>
-        kind === 'character' || kind === 'animation' || kind === 'animation_v3' ? (
+        kind === 'video_v3' ? (
+          <RelationWorldSection
+            key={c.name}
+            world={c.name}
+            collapsed={collapsed.has(c.name)}
+            onToggleCollapse={() => toggleCollapse(c.name)}
+          />
+        ) : kind === 'character' || kind === 'animation' || kind === 'animation_v3' ? (
           <SpriteSection
             key={c.name}
             category={c.name}

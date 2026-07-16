@@ -1,6 +1,43 @@
 import axios from 'axios';
 
-export type AssetKind = 'character' | 'object' | 'background' | 'video' | 'video_v2' | 'animation' | 'animation_v3' | 'intro' | 'intro_end' | 'intro_music';
+export type AssetKind = 'character' | 'object' | 'background' | 'video' | 'video_v2' | 'video_v3' | 'animation' | 'animation_v3' | 'intro' | 'intro_end' | 'intro_music';
+
+// --- relation backgrounds (Live BG v3): world location graphs ----------------
+
+export interface RelationEndpoint {
+  zone?: string;
+  screen_zone?: string;
+  center_pct?: number[]; // [x, y] in 0-100, top-left origin
+  landmark_ids?: string[];
+}
+
+export interface RelationRoute {
+  id: string;
+  from: string;
+  to: string;
+  bidirectional: boolean;
+  relation: 'path' | 'enter' | string;
+  portal: string; // door | arch | gate | stair | walkway | edge | vista | vehicle
+  exit: RelationEndpoint;
+  entry: RelationEndpoint;
+}
+
+export interface RelationNode {
+  slug: string;
+  url: string | null;
+  description: string;
+  indoor: boolean;
+  tod: 'day' | 'dusk' | 'night' | string;
+  parent: string | null;
+  status: string;
+}
+
+export interface RelationWorldGraph {
+  world_id: string;
+  version?: number;
+  nodes: RelationNode[];
+  routes: RelationRoute[];
+}
 
 // --- asset types (subset of story-gen-exps api_v4 used by the editor) --------
 
@@ -219,6 +256,11 @@ export const apiV4 = {
       .get<AssetCatalog>(
         `/assets/catalog?kind=${kind}${includeDisabled ? '&include_disabled=true' : ''}`,
       )
+      .then((r) => r.data),
+
+  getRelationGraph: (worldId: string) =>
+    client
+      .get<RelationWorldGraph>(`/live-bgs-v3/${encodeURIComponent(worldId)}/graph`)
       .then((r) => r.data),
 
   getBackground: (slug: string) =>

@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app import asset_admin, backgrounds, connection, end_intros, intro_music, intros, live_bgs_v2, sprites_v2, sprites_v3, videos
+from app import asset_admin, backgrounds, connection, end_intros, intro_music, intros, live_bgs_v2, live_bgs_v3, sprites_v2, sprites_v3, videos
 from app.asset_urls import _spritesheet_url, resolve_asset_url
 from app.livebg import service as livebg_service
 from app.catalog import catalog, overrides
@@ -128,6 +128,9 @@ async def asset_catalog(kind: AssetKind, include_disabled: bool = False) -> dict
     if kind == "video_v2":
         # Re-animated live backgrounds under review (live_backgrounds_v2/).
         return live_bgs_v2.catalog(include_disabled=include_disabled)
+    if kind == "video_v3":
+        # Relation backgrounds: a VIEW of live_backgrounds/ grouped by world graph.
+        return live_bgs_v3.catalog(include_disabled=include_disabled)
     if kind == "intro_end":
         # One goodnight END card per world (intros/{world}/end_bg.mp4).
         return end_intros.catalog(include_disabled=include_disabled)
@@ -350,6 +353,18 @@ async def save_video_movers(slug: str, body: MoversUpdate) -> dict:
     except Exception as exc:  # noqa: BLE001 — surface render/ffmpeg failures
         log.exception("livebg re-render failed for %s", slug)
         raise HTTPException(status_code=500, detail=f"re-render failed: {exc}")
+
+
+# --- relation backgrounds (Live BG v3): world location graphs ----------------
+
+@router.get("/live-bgs-v3/{world_id}/graph")
+async def get_world_graph(world_id: str) -> dict:
+    """One world's location graph (nodes with resolved URLs + routes with both
+    endpoints) — the data the relation-map UI draws."""
+    try:
+        return await asyncio.to_thread(live_bgs_v3.graph_view, world_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no world graph {world_id!r}")
 
 
 # --- asset management: add new / rename existing -----------------------------

@@ -9,6 +9,7 @@ const KIND_LABEL: Record<AssetKind, string> = {
   object: 'object',
   video: 'live background', // no add-flow (discovered from MinIO); here for type completeness
   video_v2: 'live background v2', // no add-flow (published by the v2 re-animate pipeline); here for type completeness
+  video_v3: 'relation background', // no add-flow (a VIEW of world-graph nodes); here for type completeness
   animation: 'animation v2', // no add-flow (discovered from sprites-v2/); here for type completeness
   animation_v3: 'animation v3', // no add-flow (curated subset); here for type completeness
   intro: 'world intro', // no add-flow (published by story-gen intro pipeline); here for type completeness
