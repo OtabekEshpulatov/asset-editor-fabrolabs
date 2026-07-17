@@ -3,19 +3,17 @@ import { useQuery } from '@tanstack/react-query';
 import { apiV4, type RelationNode, type RelationRoute } from '../api';
 
 /**
- * Live BG v3 — relation map for one world, organized as THEMED CLUSTERS.
+ * Live BG v3 — relation map for one world, organized as THEMED DISTRICTS.
  *
- * Big graphs are unreadable as one canvas, so the world is split into small
- * districts (the sidecar's per-node `cluster`): each cluster gets its own
- * compact left→right flow card (≤7 nodes — always fully visible), and the
- * routes BETWEEN clusters ("gateways") appear as jump pills on both cards
- * instead of long tangled lines. An overview strip up top shows how the
- * districts connect.
- *
- * Inside a card: arrows = the natural walk order (all routes are two-way);
- * gray = path, dashed teal = vista, amber 🚪 = enter.
- * Click a node → right panel shows the frame with EXIT DOTS at the exact
- * `center_pct` of every route.
+ * Interaction model (all IN PLACE — nothing opens elsewhere):
+ * - idle: only the district bgs are visible; route lines sit faint; the
+ *   neighbor-district GUEST cards are hidden.
+ * - hover a bg: its routes light up, unrelated bgs dim, and its guest
+ *   neighbors fade in inside the lane on the right of the card.
+ * - select (click) a bg: everything unrelated disappears completely — only
+ *   the bg + its relations remain, right where they stand; distant relations
+ *   appear as guest cards beside it. Districts with nothing relevant collapse.
+ *   Esc / clicking again brings the whole map back.
  */
 
 const COL_W = 235;
@@ -39,7 +37,7 @@ function shortName(slug: string, worldPrefixes: string[]): string {
   return s.replace(/_/g, ' ');
 }
 
-/** Layered left→right layout for ONE cluster's nodes + internal routes. */
+/** Layered left→right layout for ONE district's nodes + internal routes. */
 function layoutCluster(nodes: RelationNode[], routes: RelationRoute[]) {
   const slugs = nodes.map((n) => n.slug);
   const known = new Set(slugs);
@@ -143,40 +141,9 @@ export default function RelationWorldSection({
   const routes = data?.routes ?? [];
   const clusterMeta = data?.clusters ?? {};
   const [selected, setSelected] = useState<string | null>(null);
-  // Professional edge emphasis: lines sit almost invisible; hovering OR
-  // selecting a bg lights up only ITS routes and fades the rest away.
   const [hovered, setHovered] = useState<string | null>(null);
-  const focus = hovered ?? selected;
-  const edgeEmphasis = (a: string, b: string) => {
-    if (!focus) return { opacity: 0.14, width: 2, showIcon: false };
-    if (a === focus || b === focus) return { opacity: 1, width: 3.5, showIcon: true };
-    return { opacity: 0.04, width: 2, showIcon: false };
-  };
-  // Focus+context for the CARDS too: the focused bg and its direct neighbors
-  // stay full-strength, everything else dims (but never disappears).
-  const focusNeighbors = useMemo(() => {
-    if (!focus) return null;
-    const s = new Set<string>([focus]);
-    for (const r of routes) {
-      if (r.from === focus) s.add(r.to);
-      if (r.to === focus) s.add(r.from);
-    }
-    return s;
-  }, [focus, routes]);
-  const cardDim = (slug: string) =>
-    focusNeighbors && !focusNeighbors.has(slug)
-      ? { opacity: 0.35, filter: 'saturate(0.4)' }
-      : undefined;
-  // After a jump/select, the landed card pulses briefly so the eye finds it.
-  const [pulsed, setPulsed] = useState<string | null>(null);
-  const pulse = (slug: string) => {
-    setPulsed(slug);
-    window.setTimeout(() => setPulsed((p) => (p === slug ? null : p)), 2000);
-  };
-  // Selecting a bg opens FOCUS MODE: the map hides and only the selected bg +
-  // ALL of its relations are laid out side by side (far ones brought close).
-  // Esc / ✕ / clicking the center card returns to the map.
   const sel = nodes.find((x) => x.slug === selected) ?? null;
+  const focus = hovered ?? selected;
 
   const prefixes = useMemo(() => {
     const first = nodes[0]?.slug ?? '';
@@ -184,7 +151,73 @@ export default function RelationWorldSection({
     return p ? [p] : [];
   }, [nodes]);
 
-  // ── cluster grouping ──────────────────────────────────────────────────────
+  const neighborsOf = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    const add = (a: string, b: string) => {
+      if (!m.has(a)) m.set(a, new Set([a]));
+      m.get(a)!.add(b);
+    };
+    for (const r of routes) {
+      add(r.from, r.to);
+      add(r.to, r.from);
+    }
+    return m;
+  }, [routes]);
+  const focusSet = focus ? neighborsOf.get(focus) ?? new Set([focus]) : null;
+  const selSet = selected ? neighborsOf.get(selected) ?? new Set([selected]) : null;
+
+  /** Edge visibility: faint at idle; lit when touching the focus; when a bg is
+   *  SELECTED, unrelated edges vanish completely. */
+  const edgeEmphasis = (a: string, b: string) => {
+    const touches = focus != null && (a === focus || b === focus);
+    if (selected) {
+      const touchesSel = a === selected || b === selected;
+      if (touchesSel) return { opacity: 1, width: 3.5, showIcon: true };
+      return { opacity: 0, width: 2, showIcon: false };
+    }
+    if (!focus) return { opacity: 0.14, width: 2, showIcon: false };
+    if (touches) return { opacity: 1, width: 3.5, showIcon: true };
+    return { opacity: 0.04, width: 2, showIcon: false };
+  };
+
+  /** Card visibility: hover dims unrelated; select HIDES unrelated in place. */
+  const cardFx = (slug: string): React.CSSProperties | undefined => {
+    if (selected) {
+      return selSet!.has(slug)
+        ? undefined
+        : { opacity: 0, pointerEvents: 'none' };
+    }
+    if (focusSet && !focusSet.has(slug)) return { opacity: 0.35, filter: 'saturate(0.4)' };
+    return undefined;
+  };
+
+  /** Guest cards stay hidden until their inner partner (or they themselves)
+   *  are hovered/selected. */
+  const ghostVisible = (inner: string, outer: string) =>
+    focus != null && (inner === focus || outer === focus);
+
+  const [pulsed, setPulsed] = useState<string | null>(null);
+  const pulse = (slug: string) => {
+    setPulsed(slug);
+    window.setTimeout(() => setPulsed((p) => (p === slug ? null : p)), 2000);
+  };
+  const jumpTo = (slug: string) => {
+    setSelected(slug);
+    pulse(slug);
+    const key = clusterOf.get(slug) || 'all';
+    window.setTimeout(() => {
+      document.getElementById(`cluster-${world}-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 120);
+  };
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelected(null);
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
+
+  // ── district grouping ─────────────────────────────────────────────────────
   const clusterOf = useMemo(
     () => new Map(nodes.map((n) => [n.slug, n.cluster || 'all'])),
     [nodes],
@@ -216,8 +249,6 @@ export default function RelationWorldSection({
     for (const key of clusterKeys) {
       const members = nodes.filter((n) => (n.cluster || 'all') === key);
       const L = layoutCluster(members, routes);
-      // neighbor-district targets appear INSIDE this card as distinct "guest"
-      // cards in a separate right-hand lane, each pointed at by an amber arrow
       const gws = gateways.filter(
         (g) => clusterOf.get(g.from) === key || clusterOf.get(g.to) === key,
       );
@@ -246,6 +277,16 @@ export default function RelationWorldSection({
     return m;
   }, [clusterKeys, nodes, routes, gateways, clusterOf]);
 
+  /** When something is selected, districts that hold nothing related collapse. */
+  const clusterRelevant = (key: string) => {
+    if (!selected) return true;
+    const L = layouts.get(key)!;
+    return (
+      L.members.some((mm) => selSet!.has(mm.slug)) ||
+      L.ghostEdges.some((ge) => ge.from === selected || ge.toGhost === selected)
+    );
+  };
+
   const exits = useMemo(() => {
     if (!sel) return [];
     return routes
@@ -258,19 +299,6 @@ export default function RelationWorldSection({
       });
   }, [sel, routes]);
 
-  const jumpTo = (slug: string) => {
-    setSelected(slug);
-    pulse(slug);
-  };
-  // Esc leaves focus mode
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelected(null);
-    };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, []);
-
   return (
     <section className="space-y-2">
       <style>{`
@@ -281,13 +309,8 @@ export default function RelationWorldSection({
           100% { box-shadow: 0 0 0 16px rgba(59,130,246,0); }
         }
         .rg-pulse { animation: rg-pulse .9s ease-out 2; }
-        @keyframes rg-zoom {
-          from { opacity: 0; transform: scale(.97); }
-          to { opacity: 1; transform: none; }
-        }
-        .rg-zoom { animation: rg-zoom .28s ease-out; }
         @media (prefers-reduced-motion: reduce) {
-          .rg-dash-anim, .rg-pulse, .rg-zoom { animation: none; }
+          .rg-dash-anim, .rg-pulse { animation: none; }
         }
       `}</style>
       <button
@@ -310,136 +333,8 @@ export default function RelationWorldSection({
           {data && (
             <div className="flex flex-wrap items-start gap-4">
               <div className="min-w-[660px] flex-1 space-y-4">
-                {sel ? (
-                  /* ── FOCUS MODE: only the selected bg + ALL its relations,
-                        far ones brought right next to it ─────────────────── */
-                  (() => {
-                    const n = exits.length;
-                    const FH = Math.max(PAD_Y * 2 + (n - 1) * ROW_H, 300);
-                    const selX = 165;
-                    const nbX = 585;
-                    return (
-                      <div className="rg-zoom rounded-lg border border-gray-200 bg-white">
-                        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2">
-                          <span className="text-sm font-semibold text-gray-700">
-                            🔍 {shortName(sel.slug, prefixes)}
-                            <span className="ml-2 font-normal text-gray-400">
-                              fokus — {n} ta bog'lanish · {clusterTitle(clusterOf.get(sel.slug)!)}
-                            </span>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setSelected(null)}
-                            className="rounded border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
-                          >
-                            ✕ xaritaga qaytish <span className="text-gray-400">(Esc)</span>
-                          </button>
-                        </div>
-                        <div className="overflow-x-auto">
-                          <div
-                            className="relative"
-                            style={{
-                              width: nbX + CARD_W / 2 + PAD_X,
-                              height: FH,
-                              backgroundImage: 'radial-gradient(circle, #d8dbe0 1px, transparent 1px)',
-                              backgroundSize: '22px 22px',
-                            }}
-                          >
-                            <svg className="absolute inset-0" width={nbX + CARD_W / 2 + PAD_X} height={FH}>
-                              {ARROW_DEFS}
-                              {exits.map((e, i) => {
-                                const st = edgeStyle(e.route);
-                                const y = FH / 2 + (i - (n - 1) / 2) * ROW_H;
-                                const x1 = selX + 92;
-                                const x2 = nbX - CARD_W / 2 - 8;
-                                const midX = (x1 + x2) / 2;
-                                return (
-                                  <g key={`focus-${e.route.id}-${i}`}>
-                                    <path d={`M ${x1} ${FH / 2} C ${midX} ${FH / 2}, ${midX} ${y}, ${x2} ${y}`}
-                                          fill="none" stroke={st.stroke} strokeWidth={3}
-                                          className={st.dash ? 'rg-dash-anim' : undefined}
-                                          strokeDasharray={st.dash} markerEnd={st.marker} />
-                                    {st.icon && (
-                                      <text x={midX} y={(FH / 2 + y) / 2 - 7} textAnchor="middle" fontSize="13"
-                                            style={{ pointerEvents: 'none' }}>
-                                        {st.icon}
-                                      </text>
-                                    )}
-                                    <circle cx={x1} cy={FH / 2} r="3.5" fill={st.stroke} />
-                                    <circle cx={nbX - CARD_W / 2 - 2} cy={y} r="3.5" fill={st.stroke} />
-                                  </g>
-                                );
-                              })}
-                            </svg>
-
-                            {/* the selected bg — big, center-left */}
-                            <button
-                              type="button"
-                              onClick={() => setSelected(null)}
-                              title="Yopish (xaritaga qaytish)"
-                              className={[
-                                'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 rounded-xl border-2 border-blue-500 bg-white p-1.5 shadow-md ring-2 ring-blue-200',
-                                pulsed === sel.slug ? 'rg-pulse' : '',
-                              ].join(' ')}
-                              style={{ left: selX, top: FH / 2, width: 184 }}
-                            >
-                              <div className="relative overflow-hidden rounded-lg">
-                                <Thumb url={sel.url} w={168} h={95} />
-                                <span className="absolute left-1 top-1 rounded bg-black/55 px-1 text-[10px] text-white">
-                                  {TOD_ICON[sel.tod] ?? ''}{sel.indoor ? ' ■' : ''}
-                                </span>
-                              </div>
-                              <span className="w-full truncate text-center text-[11px] font-semibold leading-tight text-gray-800">
-                                {shortName(sel.slug, prefixes)}
-                              </span>
-                            </button>
-
-                            {/* every relation, brought close — cross-district ones keep guest styling */}
-                            {exits.map((e, i) => {
-                              const nb = nodes.find((x) => x.slug === e.other);
-                              if (!nb) return null;
-                              const y = FH / 2 + (i - (n - 1) / 2) * ROW_H;
-                              const cross = clusterOf.get(nb.slug) !== clusterOf.get(sel.slug);
-                              return (
-                                <button
-                                  key={`focusnb-${nb.slug}-${i}`}
-                                  type="button"
-                                  onClick={() => jumpTo(nb.slug)}
-                                  title={`${nb.slug} — fokusni shu fonga o'tkazish`}
-                                  className={[
-                                    'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg p-1 shadow-sm transition-all duration-300 ease-out hover:z-10 hover:scale-[1.05] hover:shadow-md motion-reduce:transition-none',
-                                    cross
-                                      ? 'border-2 border-dashed border-amber-400 bg-amber-50 hover:bg-amber-100'
-                                      : 'border border-gray-200 bg-white hover:border-blue-300',
-                                  ].join(' ')}
-                                  style={{ left: nbX, top: y, width: CARD_W }}
-                                >
-                                  <div className="relative overflow-hidden rounded">
-                                    <Thumb url={nb.url} w={120} h={68} />
-                                    <span className="absolute left-0.5 top-0.5 rounded bg-black/55 px-1 text-[9px] text-white">
-                                      {TOD_ICON[nb.tod] ?? ''}{nb.indoor ? ' ■' : ''}
-                                    </span>
-                                  </div>
-                                  <span className="w-full truncate text-center text-[10px] leading-tight text-gray-700">
-                                    {shortName(nb.slug, prefixes)}
-                                  </span>
-                                  {cross && (
-                                    <span className="w-full truncate text-center text-[9px] leading-tight text-amber-600">
-                                      {clusterTitle(clusterOf.get(nb.slug)!)}
-                                    </span>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()
-                ) : (
-                <>
-                {/* ── overview: districts + how they connect ────────────── */}
-                <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-[12px]">
+                {/* ── overview strip ────────────────────────────────────── */}
+                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-2 text-[12px]">
                   <div className="flex flex-wrap items-center gap-2">
                     {clusterKeys.map((key) => (
                       <button
@@ -454,26 +349,23 @@ export default function RelationWorldSection({
                         <span className="ml-1 text-gray-400">{layouts.get(key)?.members.length}</span>
                       </button>
                     ))}
-                    <span className="mx-1 text-gray-300">|</span>
-                    {[...new Set(gateways.map((g) =>
-                      [clusterOf.get(g.from)!, clusterOf.get(g.to)!].sort().join('⇄')))].map((pair) => {
-                      const [a, b] = pair.split('⇄');
-                      const n = gateways.filter((g) =>
-                        [clusterOf.get(g.from)!, clusterOf.get(g.to)!].sort().join('⇄') === pair).length;
-                      return (
-                        <span key={pair} className="rounded bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
-                          {clusterTitle(a)} ⇄ {clusterTitle(b)}{n > 1 ? ` ×${n}` : ''}
-                        </span>
-                      );
-                    })}
+                    <span className="text-[11px] text-gray-400">
+                      hover — yo'llarini ko'rsatadi · click — faqat o'zi va bog'liqlari qoladi (Esc — qaytish)
+                    </span>
                   </div>
-                  <div className="mt-1 text-[11px] text-gray-400">
-                    lines stay faint — HOVER or CLICK a bg to light up only ITS routes · — path · ┅ vista · 🚪 enter · amber = gateway to a neighbor district
-                  </div>
+                  {selected && (
+                    <button
+                      type="button"
+                      onClick={() => setSelected(null)}
+                      className="shrink-0 rounded border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                    >
+                      ✕ hammasini ko'rsatish
+                    </button>
+                  )}
                 </div>
 
                 {/* ── one compact card per district ─────────────────────── */}
-                {clusterKeys.map((key) => {
+                {clusterKeys.filter(clusterRelevant).map((key) => {
                   const L = layouts.get(key)!;
                   return (
                     <div key={key} id={`cluster-${world}-${key}`}
@@ -492,37 +384,23 @@ export default function RelationWorldSection({
                             backgroundSize: '22px 22px',
                           }}
                         >
-                          {L.ghosts.length > 0 && (
-                            <>
-                              <div
-                                className="absolute top-2 bottom-2 border-l-2 border-dashed border-amber-300"
-                                style={{ left: L.width - PAD_X + COL_W / 2 }}
-                              />
-                              <div
-                                className="absolute top-2 -translate-x-1/2 rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
-                                style={{ left: L.ghosts[0].x }}
-                              >
-                                ⇄ qo'shni bo'limlar
-                              </div>
-                            </>
-                          )}
                           <svg className="absolute inset-0" width={L.fullWidth} height={L.fullHeight}>
                             {ARROW_DEFS}
                             {L.ghostEdges.map((ge) => {
                               const a = L.pos.get(ge.from);
                               const g = L.ghosts.find((x) => x.node.slug === ge.toGhost);
                               if (!a || !g) return null;
-                              const em = edgeEmphasis(ge.from, ge.toGhost);
+                              const on = ghostVisible(ge.from, ge.toGhost);
                               const x1 = a.x + CARD_W / 2;
                               const x2 = g.x - CARD_W / 2 - 8;
                               const midX = (x1 + x2) / 2;
                               return (
                                 <g key={`ghost-${ge.route.id}-${ge.from}`}
-                                   style={{ opacity: em.opacity, transition: 'opacity .4s ease' }}>
+                                   style={{ opacity: on ? 1 : 0, transition: 'opacity .4s ease' }}>
                                   <path d={`M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${g.y}, ${x2} ${g.y}`}
                                         fill="none" stroke="#f59e0b"
-                                        className={em.showIcon ? 'rg-dash-anim' : undefined}
-                                        strokeWidth={em.width}
+                                        className={on ? 'rg-dash-anim' : undefined}
+                                        strokeWidth={3}
                                         strokeDasharray="8 5" markerEnd="url(#arrow-amber)">
                                     <title>{`${ge.from} ⇄ ${ge.toGhost} (boshqa bo'limga o'tish)`}</title>
                                   </path>
@@ -561,6 +439,7 @@ export default function RelationWorldSection({
                               );
                             })}
                           </svg>
+
                           {L.members.map((n) => {
                             const p = L.pos.get(n.slug);
                             if (!p) return null;
@@ -575,11 +454,11 @@ export default function RelationWorldSection({
                                 onMouseLeave={() => setHovered(null)}
                                 className={[
                                   'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm transition-all duration-300 ease-out motion-reduce:transition-none',
-                                  isSel ? 'z-10 scale-[1.04] border-blue-500 shadow-md ring-2 ring-blue-300'
+                                  isSel ? 'z-10 scale-[1.06] border-blue-500 shadow-md ring-2 ring-blue-300'
                                         : 'border-gray-200 hover:z-10 hover:scale-[1.04] hover:border-blue-300 hover:shadow-md',
                                   pulsed === n.slug ? 'rg-pulse' : '',
                                 ].join(' ')}
-                                style={{ left: p.x, top: p.y, width: CARD_W, ...cardDim(n.slug) }}
+                                style={{ left: p.x, top: p.y, width: CARD_W, ...cardFx(n.slug) }}
                               >
                                 <div className="relative overflow-hidden rounded">
                                   <Thumb url={n.url} w={120} h={68} />
@@ -593,10 +472,13 @@ export default function RelationWorldSection({
                               </button>
                             );
                           })}
-                          {/* GUEST cards: the actual neighbor-district bgs, visually
-                              distinct (amber dashed) — click jumps to their card */}
+
+                          {/* GUEST cards — hidden until their partner is
+                              hovered/selected; visually distinct (amber) */}
                           {L.ghosts.map((g) => {
-                            const isSel = selected === g.node.slug;
+                            const on = L.ghostEdges.some(
+                              (ge) => ge.toGhost === g.node.slug && ghostVisible(ge.from, ge.toGhost),
+                            );
                             return (
                               <button
                                 key={`ghost-${g.node.slug}`}
@@ -605,12 +487,12 @@ export default function RelationWorldSection({
                                 onMouseEnter={() => setHovered(g.node.slug)}
                                 onMouseLeave={() => setHovered(null)}
                                 title={`${g.node.slug} — ${clusterTitle(clusterOf.get(g.node.slug)!)} bo'limiga o'tish`}
-                                className={[
-                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border-2 border-dashed p-1 shadow-sm transition-all duration-300 ease-out motion-reduce:transition-none',
-                                  isSel ? 'z-10 scale-[1.04] border-amber-500 bg-amber-100 shadow-md ring-2 ring-amber-300'
-                                        : 'border-amber-400 bg-amber-50 hover:z-10 hover:scale-[1.04] hover:bg-amber-100 hover:shadow-md',
-                                ].join(' ')}
-                                style={{ left: g.x, top: g.y, width: CARD_W, ...cardDim(g.node.slug) }}
+                                className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 p-1 shadow-sm transition-all duration-300 ease-out hover:z-10 hover:scale-[1.04] hover:bg-amber-100 hover:shadow-md motion-reduce:transition-none"
+                                style={{
+                                  left: g.x, top: g.y, width: CARD_W,
+                                  opacity: on ? 1 : 0,
+                                  pointerEvents: on ? undefined : 'none',
+                                }}
                               >
                                 <div className="relative overflow-hidden rounded">
                                   <Thumb url={g.node.url} w={120} h={68} />
@@ -633,8 +515,6 @@ export default function RelationWorldSection({
                     </div>
                   );
                 })}
-                </>
-                )}
               </div>
 
               {/* ── selected background: exits marked on the frame ───────── */}
