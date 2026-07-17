@@ -167,6 +167,37 @@ export default function RelationWorldSection({
     focusNeighbors && !focusNeighbors.has(slug)
       ? { opacity: 0.35, filter: 'saturate(0.4)' }
       : undefined;
+  // After a jump/select, the landed card pulses briefly so the eye finds it.
+  const [pulsed, setPulsed] = useState<string | null>(null);
+  const pulse = (slug: string) => {
+    setPulsed(slug);
+    window.setTimeout(() => setPulsed((p) => (p === slug ? null : p)), 2000);
+  };
+  /** Gently bring off-screen neighbors of a just-selected bg into view, one by
+   *  one (staggered), so its "continuation" slides in instead of hiding. */
+  const revealNeighbors = (slug: string) => {
+    const neigh: string[] = [];
+    for (const r of routes) {
+      if (r.from === slug) neigh.push(r.to);
+      if (r.to === slug) neigh.push(r.from);
+    }
+    let delay = 250;
+    for (const nb of [...new Set(neigh)]) {
+      const el = document.getElementById(`rgnode-${world}-${nb}`);
+      if (!el) continue;
+      const box = el.getBoundingClientRect();
+      const scroller = el.closest('.overflow-x-auto');
+      const sBox = scroller?.getBoundingClientRect();
+      const offX = sBox ? box.left < sBox.left + 10 || box.right > sBox.right - 10 : false;
+      const offY = box.top < 90 || box.bottom > window.innerHeight - 20;
+      if (offX || offY) {
+        window.setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        }, delay);
+        delay += 380;
+      }
+    }
+  };
   const sel = nodes.find((x) => x.slug === selected) ?? null;
 
   const prefixes = useMemo(() => {
@@ -253,10 +284,27 @@ export default function RelationWorldSection({
     setSelected(slug);
     const key = clusterOf.get(slug) || 'all';
     document.getElementById(`cluster-${world}-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    window.setTimeout(() => {
+      document.getElementById(`rgnode-${world}-${slug}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      pulse(slug);
+    }, 350);
   };
 
   return (
     <section className="space-y-2">
+      <style>{`
+        @keyframes rg-dash { to { stroke-dashoffset: -26; } }
+        .rg-dash-anim { animation: rg-dash 1.1s linear infinite; }
+        @keyframes rg-pulse {
+          0% { box-shadow: 0 0 0 0 rgba(59,130,246,.55); }
+          100% { box-shadow: 0 0 0 16px rgba(59,130,246,0); }
+        }
+        .rg-pulse { animation: rg-pulse .9s ease-out 2; }
+        @media (prefers-reduced-motion: reduce) {
+          .rg-dash-anim, .rg-pulse { animation: none; }
+        }
+      `}</style>
       <button
         type="button"
         onClick={onToggleCollapse}
@@ -356,9 +404,11 @@ export default function RelationWorldSection({
                               const x2 = g.x - CARD_W / 2 - 8;
                               const midX = (x1 + x2) / 2;
                               return (
-                                <g key={`ghost-${ge.route.id}-${ge.from}`} opacity={em.opacity}>
+                                <g key={`ghost-${ge.route.id}-${ge.from}`}
+                                   style={{ opacity: em.opacity, transition: 'opacity .4s ease' }}>
                                   <path d={`M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${g.y}, ${x2} ${g.y}`}
                                         fill="none" stroke="#f59e0b"
+                                        className={em.showIcon ? 'rg-dash-anim' : undefined}
                                         strokeWidth={em.width}
                                         strokeDasharray="8 5" markerEnd="url(#arrow-amber)">
                                     <title>{`${ge.from} ⇄ ${ge.toGhost} (boshqa bo'limga o'tish)`}</title>
@@ -378,9 +428,10 @@ export default function RelationWorldSection({
                               const x2 = b.x - CARD_W / 2 - 8;
                               const midX = (x1 + x2) / 2;
                               return (
-                                <g key={r.id} opacity={em.opacity}>
+                                <g key={r.id} style={{ opacity: em.opacity, transition: 'opacity .4s ease' }}>
                                   <path d={`M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${b.y}, ${x2} ${b.y}`}
                                         fill="none" stroke={st.stroke}
+                                        className={st.dash && em.showIcon ? 'rg-dash-anim' : undefined}
                                         strokeWidth={em.width}
                                         strokeDasharray={st.dash} markerEnd={st.marker}>
                                     <title>{`${r.from} ↔ ${r.to} (${r.relation === 'enter' ? 'enter' : r.portal})`}</title>
@@ -404,14 +455,19 @@ export default function RelationWorldSection({
                             return (
                               <button
                                 key={n.slug}
+                                id={`rgnode-${world}-${n.slug}`}
                                 type="button"
-                                onClick={() => setSelected(isSel ? null : n.slug)}
+                                onClick={() => {
+                                  setSelected(isSel ? null : n.slug);
+                                  if (!isSel) revealNeighbors(n.slug);
+                                }}
                                 onMouseEnter={() => setHovered(n.slug)}
                                 onMouseLeave={() => setHovered(null)}
                                 className={[
-                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm transition duration-150',
-                                  isSel ? 'z-10 border-blue-500 shadow-md ring-2 ring-blue-300'
-                                        : 'border-gray-200 hover:z-10 hover:border-blue-300 hover:shadow-md',
+                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm transition-all duration-300 ease-out motion-reduce:transition-none',
+                                  isSel ? 'z-10 scale-[1.04] border-blue-500 shadow-md ring-2 ring-blue-300'
+                                        : 'border-gray-200 hover:z-10 hover:scale-[1.04] hover:border-blue-300 hover:shadow-md',
+                                  pulsed === n.slug ? 'rg-pulse' : '',
                                 ].join(' ')}
                                 style={{ left: p.x, top: p.y, width: CARD_W, ...cardDim(n.slug) }}
                               >
@@ -440,9 +496,9 @@ export default function RelationWorldSection({
                                 onMouseLeave={() => setHovered(null)}
                                 title={`${g.node.slug} — ${clusterTitle(clusterOf.get(g.node.slug)!)} bo'limiga o'tish`}
                                 className={[
-                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border-2 border-dashed p-1 shadow-sm transition duration-150',
-                                  isSel ? 'z-10 border-amber-500 bg-amber-100 shadow-md ring-2 ring-amber-300'
-                                        : 'border-amber-400 bg-amber-50 hover:z-10 hover:bg-amber-100 hover:shadow-md',
+                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border-2 border-dashed p-1 shadow-sm transition-all duration-300 ease-out motion-reduce:transition-none',
+                                  isSel ? 'z-10 scale-[1.04] border-amber-500 bg-amber-100 shadow-md ring-2 ring-amber-300'
+                                        : 'border-amber-400 bg-amber-50 hover:z-10 hover:scale-[1.04] hover:bg-amber-100 hover:shadow-md',
                                 ].join(' ')}
                                 style={{ left: g.x, top: g.y, width: CARD_W, ...cardDim(g.node.slug) }}
                               >
