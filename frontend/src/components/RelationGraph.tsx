@@ -1,19 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiV4, type RelationNode, type RelationRoute } from '../api';
 
 /**
  * Live BG v3 — relation map for one world, organized as THEMED DISTRICTS.
  *
- * Everything happens IN PLACE — nodes never move to a new canvas:
+ * Everything happens IN PLACE — nothing in the page ever reflows or jumps:
  * - idle: only the district bgs show; route lines faint; neighbor bgs hidden.
- * - hover a bg: its routes light up, unrelated bgs dim, and its cross-district
- *   relations appear as small "guest" cards tucked into the nearest EMPTY spot
- *   beside it (never on top of another card).
- * - select (click) a bg: it stays exactly where it is; every UNRELATED bg
- *   disappears, and any related bg that lived far away (another district) is
- *   pulled in as a guest card filling the freed space next to it. Esc / ✕ /
- *   clicking it again brings the whole map back.
+ * - hover a bg (with a short hover-intent delay so sweeping the mouse doesn't
+ *   flicker): its routes light up and its cross-district relations appear as
+ *   "guest" cards in the nearest EMPTY grid cell — never on top of a card.
+ * - select (click) a bg: it stays exactly where it is. Unrelated bgs in its
+ *   district fade out in place (freeing their cells), far relations are pulled
+ *   into those free cells as guests, and the OTHER district panels stay
+ *   mounted at full size but fade back — so the clicked card keeps its exact
+ *   screen position. Esc / ✕ / clicking it again restores the map.
  */
 
 const COL_W = 235;
@@ -37,23 +38,32 @@ function shortName(slug: string, worldPrefixes: string[]): string {
   return s.replace(/_/g, ' ');
 }
 
-/** Nearest empty position to (nx,ny) that doesn't overlap any occupied card. */
-function freeSlot(occupied: { x: number; y: number }[], nx: number, ny: number) {
+/**
+ * Nearest empty grid cell to (nx,ny) that doesn't overlap any occupied card.
+ * Prefers cells inside the board (boardH); only spills BELOW it when full —
+ * never above (that would shift the anchor) and never onto another card.
+ */
+function freeSlot(occupied: { x: number; y: number }[], nx: number, ny: number, boardH: number) {
   const OFFS: [number, number][] = [
-    [1, 0], [1, 1], [1, -1], [0, 1], [0, -1], [2, 0], [2, 1], [2, -1],
-    [1, 2], [1, -2], [0, 2], [0, -2], [2, 2], [2, -2], [3, 0], [3, 1], [3, -1],
-    [0, 3], [0, -3], [3, 2], [3, -2],
+    [1, 0], [1, 1], [1, -1], [0, 1], [0, -1], [-1, 0], [-1, 1], [-1, -1],
+    [2, 0], [2, 1], [2, -1], [1, 2], [0, 2], [-1, 2], [1, -2], [0, -2],
+    [2, 2], [2, -2], [3, 0], [3, 1], [3, -1], [0, 3], [1, 3], [2, 3],
   ];
   const clears = (x: number, y: number) =>
-    occupied.every((o) => Math.abs(x - o.x) >= CARD_W + 18 || Math.abs(y - o.y) >= 104);
+    occupied.every((o) => Math.abs(x - o.x) >= CARD_W + 18 || Math.abs(y - o.y) >= 108);
+  let best: { x: number; y: number } | null = null;
+  let bestScore = Infinity;
   for (const [dx, dy] of OFFS) {
     const x = nx + dx * COL_W;
-    const y = Math.max(52, ny + dy * ROW_H);
-    if (x < PAD_X) continue;
-    if (clears(x, y)) return { x, y };
+    const y = ny + dy * ROW_H;
+    if (x < PAD_X || y < 64) continue;
+    if (!clears(x, y)) continue;
+    let score = Math.hypot(dx * COL_W, dy * ROW_H);
+    if (y > boardH - 44) score += 100;       // spilling below grows the panel a little
+    if (x > nx + COL_W * 1.5) score += 300;  // far right scrolls out of view — avoid
+    if (score < bestScore) { bestScore = score; best = { x, y }; }
   }
-  const x = Math.max(nx, ...occupied.map((o) => o.x)) + COL_W;
-  return { x, y: ny };
+  return best ?? { x: Math.max(nx, ...occupied.map((o) => o.x)) + COL_W, y: ny };
 }
 
 /** Layered left→right layout for ONE district's nodes + internal routes. */
@@ -138,6 +148,23 @@ const ARROW_DEFS = (
   </defs>
 );
 
+/** Direction-aware curved connector between two card centers. */
+function guestPath(a: { x: number; y: number }, b: { x: number; y: number }) {
+  const dx = b.x - a.x;
+  if (Math.abs(dx) >= COL_W / 2) {
+    const s = Math.sign(dx);
+    const x1 = a.x + s * (CARD_W / 2), y1 = a.y;
+    const x2 = b.x - s * (CARD_W / 2 + 6), y2 = b.y;
+    const midX = (x1 + x2) / 2;
+    return { d: `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`, x1, y1, x2, y2 };
+  }
+  const s = Math.sign(b.y - a.y) || 1;
+  const x1 = a.x, y1 = a.y + s * 52;
+  const x2 = b.x, y2 = b.y - s * 58;
+  const midY = (y1 + y2) / 2;
+  return { d: `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`, x1, y1, x2, y2 };
+}
+
 export default function RelationWorldSection({
   world,
   collapsed,
@@ -158,7 +185,27 @@ export default function RelationWorldSection({
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const sel = nodes.find((x) => x.slug === selected) ?? null;
-  const focus = hovered ?? selected;
+
+  // hover-intent: short delay in, grace period out — no flicker while the
+  // pointer travels from a node to its guest cards.
+  const timers = useRef<{ enter?: number; leave?: number }>({});
+  const cancelTimers = () => {
+    if (timers.current.enter) { window.clearTimeout(timers.current.enter); timers.current.enter = undefined; }
+    if (timers.current.leave) { window.clearTimeout(timers.current.leave); timers.current.leave = undefined; }
+  };
+  const hoverEnter = (slug: string) => {
+    cancelTimers();
+    timers.current.enter = window.setTimeout(() => setHovered(slug), 110);
+  };
+  const hoverLeave = () => {
+    cancelTimers();
+    timers.current.leave = window.setTimeout(() => setHovered(null), 260);
+  };
+  const hoverKeep = () => cancelTimers();
+  useEffect(() => cancelTimers, []);
+
+  const focus = hovered ?? selected;          // edge emphasis + dimming
+  const guestAnchor = selected ?? hovered;    // whose cross-district guests are placed
 
   const bySlug = useMemo(() => new Map(nodes.map((n) => [n.slug, n])), [nodes]);
   const prefixes = useMemo(() => {
@@ -197,8 +244,13 @@ export default function RelationWorldSection({
 
   const [pulsed, setPulsed] = useState<string | null>(null);
   const jumpTo = (slug: string) => {
+    cancelTimers();
+    setHovered(null); // the clicked guest unmounts under the cursor — no mouseleave will fire
     setSelected(slug);
     setPulsed(slug);
+    window.setTimeout(() => {
+      document.getElementById(`rgnode-${world}-${slug}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 60);
     window.setTimeout(() => setPulsed((p) => (p === slug ? null : p)), 1600);
   };
   useEffect(() => {
@@ -216,10 +268,12 @@ export default function RelationWorldSection({
     return m;
   }, [clusterKeys, nodes, routes]);
 
-  const focusCluster = focus ? clusterOf.get(focus) : null;
   const nSet = focus ? neighborSet(focus) : null;
-  // when SELECTED, only the selected node's district card is shown; others go away
-  const shownClusters = selected ? clusterKeys.filter((k) => k === clusterOf.get(selected)) : clusterKeys;
+  // visibility while selected must follow the SELECTED node only — hovering a
+  // neighbor must not churn which cards are shown
+  const selNSet = selected ? neighborSet(selected) : null;
+  const selectedCluster = selected ? clusterOf.get(selected) : null;
+  const anchorCluster = guestAnchor ? clusterOf.get(guestAnchor) : null;
 
   return (
     <section className="space-y-2">
@@ -260,68 +314,83 @@ export default function RelationWorldSection({
                       </span>
                     ))}
                     <span className="text-[11px] text-gray-400">
-                      hover — bog'liq fonlar yonida chiqadi · click — faqat o'zi va bog'liqlari qoladi (Esc)
+                      hover — bog'liq fonlar bo'sh joyda chiqadi · click — shu yerning o'zida, faqat bog'liqlari qoladi (Esc)
                     </span>
                   </div>
-                  {selected && (
-                    <button type="button" onClick={() => setSelected(null)}
-                            className="shrink-0 rounded border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600 hover:bg-gray-100">
-                      ✕ hammasini ko'rsatish
-                    </button>
-                  )}
+                  {/* always mounted so the toolbar never rewraps/changes height on select */}
+                  <button type="button" onClick={() => setSelected(null)}
+                          style={{ visibility: selected ? 'visible' : 'hidden' }}
+                          className="shrink-0 rounded border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600 hover:bg-gray-100">
+                    ✕ hammasini ko'rsatish
+                  </button>
                 </div>
 
-                {shownClusters.map((key) => {
+                {clusterKeys.map((key) => {
                   const L = layouts.get(key)!;
-                  const isFocusCard = focusCluster === key && focus != null;
-                  const focusPos = isFocusCard ? L.pos.get(focus!) : null;
+                  // On select, other districts stay MOUNTED at full size (no page
+                  // reflow — the clicked card must not move) but fade far back.
+                  const mutedDistrict = selected != null && key !== selectedCluster;
 
-                  // a member is "visible" (occupies space) — on select unrelated vanish
+                  // a member is "visible" (occupies a cell) — on select unrelated vanish in place
                   const memberShown = (slug: string) =>
-                    selected ? slug === selected || nSet!.has(slug) : true;
+                    selected == null || selectedCluster !== key || slug === selected || selNSet!.has(slug);
 
-                  // cross-district relations of the focus node, placed in free spots
-                  const guestRels = isFocusCard
-                    ? relationsOf(focus!).filter((e) => clusterOf.get(e.other) !== key)
+                  // cross-district relations of the anchor, placed into free cells
+                  const anchorPos = anchorCluster === key && guestAnchor ? L.pos.get(guestAnchor) : null;
+                  const seenGuests = new Set<string>();
+                  const guestRels = anchorPos
+                    ? relationsOf(guestAnchor!).filter((e) => {
+                        if (clusterOf.get(e.other) === key || seenGuests.has(e.other)) return false;
+                        seenGuests.add(e.other);
+                        return true;
+                      })
                     : [];
                   const occ = L.members.filter((m) => memberShown(m.slug)).map((m) => L.pos.get(m.slug)!);
+                  // spare row at the bottom: hover guests land there without the
+                  // panel EVER growing, so districts below never slide around
+                  const baseH = L.height + ROW_H;
                   const placedGuests: { e: ReturnType<typeof relationsOf>[number]; slot: { x: number; y: number } }[] = [];
-                  if (focusPos) {
+                  if (anchorPos) {
                     const work = [...occ];
                     for (const e of guestRels) {
-                      const slot = freeSlot(work, focusPos.x, focusPos.y);
+                      const slot = freeSlot(work, anchorPos.x, anchorPos.y, baseH);
                       work.push(slot);
                       placedGuests.push({ e, slot });
                     }
                   }
-                  const allPts = [...occ, ...placedGuests.map((g) => g.slot)];
-                  const boardW = Math.max(L.width, ...allPts.map((p) => p.x + CARD_W / 2 + PAD_X));
-                  const boardH = Math.max(L.height, ...allPts.map((p) => p.y + 62 + PAD_Y));
+                  const boardW = Math.max(L.width, ...placedGuests.map((g) => g.slot.x + CARD_W / 2 + PAD_X));
+                  const boardH = Math.max(baseH, ...placedGuests.map((g) => g.slot.y + PAD_Y));
 
                   return (
                     <div key={key} id={`cluster-${world}-${key}`}
-                         className="rounded-lg border border-gray-200 bg-white">
+                         className="rounded-lg border border-gray-200 bg-white"
+                         style={{ opacity: mutedDistrict ? 0.18 : 1, filter: mutedDistrict ? 'grayscale(0.6)' : undefined,
+                                  pointerEvents: mutedDistrict ? 'none' : undefined, transition: 'opacity .4s ease, filter .4s ease' }}>
                       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2">
                         <span className="text-sm font-semibold text-gray-700">{clusterTitle(key)}</span>
                         <span className="text-[11px] text-gray-400">
-                          {selected ? `${occ.length} ko'rinmoqda` : `${L.members.length} bg`}
+                          {selected && selectedCluster === key ? `${occ.length} ko'rinmoqda` : `${L.members.length} bg`}
                         </span>
                       </div>
-                      <div className="overflow-x-auto">
+                      <div className="overflow-x-auto" style={{ scrollbarGutter: 'stable' }}>
                         <div className="relative" style={{ width: boardW, height: boardH,
+                             transition: 'width .3s ease, height .3s ease',
                              backgroundImage: 'radial-gradient(circle, #d8dbe0 1px, transparent 1px)', backgroundSize: '22px 22px' }}>
                           <svg className="absolute inset-0" width={boardW} height={boardH}>
                             {ARROW_DEFS}
                             {L.edges.map((r) => {
                               const a = L.pos.get(r.from); const b = L.pos.get(r.to);
                               if (!a || !b) return null;
-                              if (selected && !(memberShown(r.from) && memberShown(r.to))) return null;
-                              const st = edgeStyle(r);
+                              const bothShown = memberShown(r.from) && memberShown(r.to);
                               const on = focus != null && (r.from === focus || r.to === focus);
-                              const op = !focus ? 0.14 : on ? 1 : selected ? 0.5 : 0.05;
+                              const op = !bothShown ? 0
+                                : selected && selectedCluster === key ? (on ? 1 : 0.5)
+                                : !focus ? 0.14 : on ? 1 : 0.05;
+                              if (op === 0) return null;
+                              const st = edgeStyle(r);
                               const x1 = a.x + CARD_W / 2, x2 = b.x - CARD_W / 2 - 8, midX = (x1 + x2) / 2;
                               return (
-                                <g key={r.id} style={{ opacity: op }}>
+                                <g key={r.id} style={{ opacity: op, transition: 'opacity .3s ease' }}>
                                   <path d={`M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${b.y}, ${x2} ${b.y}`}
                                         fill="none" stroke={st.stroke}
                                         className={st.dash && on ? 'rg-dash-anim' : undefined}
@@ -337,18 +406,16 @@ export default function RelationWorldSection({
                                 </g>
                               );
                             })}
-                            {focusPos && placedGuests.map(({ e, slot }, i) => {
+                            {anchorPos && placedGuests.map(({ e, slot }, i) => {
                               const st = edgeStyle(e.route);
-                              const x1 = focusPos.x + CARD_W / 2, x2 = slot.x - CARD_W / 2 - 6, midX = (x1 + x2) / 2;
+                              const gp = guestPath(anchorPos, slot);
                               return (
                                 <g key={`ge-${e.route.id}-${i}`}>
-                                  <path d={`M ${x1} ${focusPos.y} C ${midX} ${focusPos.y}, ${midX} ${slot.y}, ${x2} ${slot.y}`}
-                                        fill="none" stroke="#f59e0b" strokeWidth={3} className="rg-dash-anim"
+                                  <path d={gp.d} fill="none" stroke="#f59e0b" strokeWidth={3} className="rg-dash-anim"
                                         strokeDasharray="8 5" markerEnd="url(#arrow-amber)" />
-                                  <circle cx={x1} cy={focusPos.y} r="3.5" fill="#f59e0b" />
-                                  <circle cx={slot.x - CARD_W / 2 - 2} cy={slot.y} r="3.5" fill="#f59e0b" />
+                                  <circle cx={gp.x1} cy={gp.y1} r="3.5" fill="#f59e0b" />
                                   {st.icon && (
-                                    <text x={midX} y={(focusPos.y + slot.y) / 2 - 7} textAnchor="middle" fontSize="12"
+                                    <text x={(gp.x1 + gp.x2) / 2} y={(gp.y1 + gp.y2) / 2 - 7} textAnchor="middle" fontSize="12"
                                           style={{ pointerEvents: 'none' }}>{st.icon}</text>
                                   )}
                                 </g>
@@ -364,15 +431,16 @@ export default function RelationWorldSection({
                             const isSel = selected === mn.slug;
                             return (
                               <button key={mn.slug} id={`rgnode-${world}-${mn.slug}`} type="button"
-                                      onClick={() => setSelected(isSel ? null : mn.slug)}
-                                      onMouseEnter={() => setHovered(mn.slug)}
-                                      onMouseLeave={() => setHovered(null)}
-                                      className={['absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm transition-[transform,box-shadow,border-color] duration-200 ease-out motion-reduce:transition-none',
+                                      onClick={() => { cancelTimers(); setHovered(null); setSelected(isSel ? null : mn.slug); }}
+                                      onMouseEnter={() => hoverEnter(mn.slug)}
+                                      onMouseLeave={hoverLeave}
+                                      className={['absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm motion-reduce:transition-none',
                                                   isSel ? 'z-10 scale-[1.06] border-blue-500 shadow-md ring-2 ring-blue-300'
                                                         : 'border-gray-200 hover:z-10 hover:scale-[1.04] hover:border-blue-300 hover:shadow-md',
                                                   pulsed === mn.slug ? 'rg-pulse' : ''].join(' ')}
                                       style={{ left: p.x, top: p.y, width: CARD_W,
-                                               ...(shown ? (dim ? { opacity: 0.28, filter: 'saturate(0.35)' } : undefined)
+                                               transition: 'opacity .35s ease, filter .35s ease, transform .3s ease, box-shadow .3s ease, border-color .3s ease',
+                                               ...(shown ? (dim ? { opacity: 0.3, filter: 'saturate(0.35)' } : undefined)
                                                          : { opacity: 0, pointerEvents: 'none' }) }}>
                                 <div className="relative overflow-hidden rounded">
                                   <Thumb url={mn.url} w={120} h={68} />
@@ -387,26 +455,34 @@ export default function RelationWorldSection({
                             );
                           })}
 
-                          {placedGuests.map(({ e, slot }, i) => {
+                          {placedGuests.map(({ e, slot }) => {
                             const nb = bySlug.get(e.other);
                             if (!nb) return null;
+                            // stable key + left/top transition: when the slot recomputes
+                            // (e.g. hover→select frees cells) the card GLIDES, not teleports;
+                            // rg-in lives on an inner wrapper so it can't fight the
+                            // -translate-x/y-1/2 centering on the positioned button.
                             return (
-                              <button key={`gc-${nb.slug}-${i}`} type="button"
-                                      onMouseEnter={() => setHovered(focus)}
+                              <button key={`gc-${nb.slug}`} type="button"
+                                      onMouseEnter={hoverKeep}
+                                      onMouseLeave={hoverLeave}
                                       onClick={() => jumpTo(nb.slug)}
                                       title={`${nb.slug} — ${clusterTitle(clusterOf.get(nb.slug)!)} bo'limiga o'tish`}
-                                      className="rg-in absolute z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 p-1 shadow-md transition-transform duration-200 hover:z-30 hover:scale-[1.05] hover:bg-amber-100"
-                                      style={{ left: slot.x, top: slot.y, width: CARD_W }}>
-                                <div className="relative overflow-hidden rounded">
-                                  <Thumb url={nb.url} w={120} h={68} />
-                                  <span className="absolute right-0.5 top-0.5 rounded bg-amber-500/90 px-1 text-[9px] font-bold text-white">↗</span>
+                                      className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 p-1 shadow-md hover:z-30 hover:bg-amber-100"
+                                      style={{ left: slot.x, top: slot.y, width: CARD_W,
+                                               transition: 'left .3s ease, top .3s ease, background-color .2s ease' }}>
+                                <div className="rg-in flex w-full flex-col items-center gap-0.5">
+                                  <div className="relative overflow-hidden rounded">
+                                    <Thumb url={nb.url} w={120} h={68} />
+                                    <span className="absolute right-0.5 top-0.5 rounded bg-amber-500/90 px-1 text-[9px] font-bold text-white">↗</span>
+                                  </div>
+                                  <span className="w-full truncate text-center text-[10px] font-medium leading-tight text-amber-900">
+                                    {shortName(nb.slug, prefixes)}
+                                  </span>
+                                  <span className="w-full truncate text-center text-[9px] leading-tight text-amber-600">
+                                    {clusterTitle(clusterOf.get(nb.slug)!)}
+                                  </span>
                                 </div>
-                                <span className="w-full truncate text-center text-[10px] font-medium leading-tight text-amber-900">
-                                  {shortName(nb.slug, prefixes)}
-                                </span>
-                                <span className="w-full truncate text-center text-[9px] leading-tight text-amber-600">
-                                  {clusterTitle(clusterOf.get(nb.slug)!)}
-                                </span>
                               </button>
                             );
                           })}
