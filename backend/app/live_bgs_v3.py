@@ -128,6 +128,7 @@ def graph_view(world_id: str) -> dict[str, Any]:
             "tod": str(n.get("tod") or "day"),
             "parent": n.get("parent"),
             "status": str(n.get("status") or "active"),
+            "cluster": n.get("cluster"),
         })
     routes = []
     for r in doc.get("routes") or []:
@@ -143,4 +144,6 @@ def graph_view(world_id: str) -> dict[str, Any]:
             "exit": r.get("exit") or {},
             "entry": r.get("entry") or {},
         })
-    return {"world_id": world_id, "version": doc.get("version"), "nodes": nodes, "routes": routes}
+    clusters = doc.get("clusters") if isinstance(doc.get("clusters"), dict) else {}
+    return {"world_id": world_id, "version": doc.get("version"),
+            "clusters": clusters, "nodes": nodes, "routes": routes}

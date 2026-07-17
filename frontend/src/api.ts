@@ -30,11 +30,14 @@ export interface RelationNode {
   tod: 'day' | 'dusk' | 'night' | string;
   parent: string | null;
   status: string;
+  /** themed district (e.g. "great_oak"); cross-cluster routes are gateways */
+  cluster?: string | null;
 }
 
 export interface RelationWorldGraph {
   world_id: string;
   version?: number;
+  clusters?: Record<string, { title?: string; emoji?: string }>;
   nodes: RelationNode[];
   routes: RelationRoute[];
 }
