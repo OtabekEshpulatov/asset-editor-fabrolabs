@@ -384,6 +384,22 @@ async def save_world_graph(world_id: str, body: GraphSaveIn) -> dict:
         raise HTTPException(status_code=422, detail=str(exc))
 
 
+@router.get("/live-bgs-v3/{world_id}/sync-engine")
+async def get_engine_sync(world_id: str) -> dict:
+    """Last release of this world's graph to the engine channel (if any)."""
+    return await asyncio.to_thread(live_bgs_v3.engine_sync_status, world_id)
+
+
+@router.post("/live-bgs-v3/{world_id}/sync-engine")
+async def sync_engine(world_id: str) -> dict:
+    """Release the current sidecar to the engine channel
+    (manifests/world_graphs_engine/) — story-gen pulls it before story runs."""
+    try:
+        return await asyncio.to_thread(live_bgs_v3.sync_engine, world_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no world graph {world_id!r}")
+
+
 # --- asset management: add new / rename existing -----------------------------
 
 @router.post("/assets/objects", status_code=201)

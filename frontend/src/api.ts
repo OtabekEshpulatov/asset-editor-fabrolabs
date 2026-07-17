@@ -273,6 +273,20 @@ export const apiV4 = {
       .put<RelationWorldGraph>(`/live-bgs-v3/${encodeURIComponent(worldId)}/graph`, body)
       .then((r) => r.data),
 
+  getEngineSync: (worldId: string) =>
+    client
+      .get<{ world_id: string; synced_at: string | null; in_sync: boolean }>(
+        `/live-bgs-v3/${encodeURIComponent(worldId)}/sync-engine`,
+      )
+      .then((r) => r.data),
+
+  syncEngine: (worldId: string) =>
+    client
+      .post<{ world_id: string; synced_at: string; nodes: number; routes: number }>(
+        `/live-bgs-v3/${encodeURIComponent(worldId)}/sync-engine`,
+      )
+      .then((r) => r.data),
+
   getBackground: (slug: string) =>
     client
       .get<BackgroundEditable>(`/backgrounds/${encodeURIComponent(slug)}`)

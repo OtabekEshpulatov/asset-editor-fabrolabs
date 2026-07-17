@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +106,55 @@ def catalog(*, include_disabled: bool = False) -> dict[str, Any]:
 
 
 _ALLOWED_RELATIONS = {"path", "enter"}
+
+# "released to engine" channel: the editor's sync button copies the live
+# sidecar here; story-gen-exps pulls this prefix into backend/engine/world_graphs/
+# before story runs (scripts/v5_pull_world_graphs.py).
+ENGINE_PREFIX = "manifests/world_graphs_engine/"
+
+
+def sync_engine(world_id: str) -> dict[str, Any]:
+    """Release the CURRENT live sidecar to the engine channel with a top-level
+    ``synced_at`` stamp (unknown top-level keys are ignored by the engine
+    loader). Raises KeyError for an unknown world."""
+    gkey = _graph_keys().get(world_id)
+    if gkey is None:
+        raise KeyError(world_id)
+    doc = _load_graph(gkey)
+    if doc is None:
+        raise KeyError(world_id)
+    doc = dict(doc)
+    doc["synced_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    minio.upload_bytes(
+        json.dumps(doc, indent=2, ensure_ascii=False).encode("utf-8"),
+        key=f"{ENGINE_PREFIX}{world_id}.json", content_type="application/json",
+    )
+    return {
+        "world_id": world_id,
+        "synced_at": doc["synced_at"],
+        "nodes": len(doc.get("nodes") or []),
+        "routes": len(doc.get("routes") or []),
+    }
+
+
+def engine_sync_status(world_id: str) -> dict[str, Any]:
+    """When (if ever) this world's graph was last released to the engine
+    channel, and whether the live sidecar has drifted since."""
+    out: dict[str, Any] = {"world_id": world_id, "synced_at": None, "in_sync": False}
+    try:
+        raw = minio.download_bytes(f"{ENGINE_PREFIX}{world_id}.json")
+        if raw is None:
+            return out
+        released = json.loads(raw.decode("utf-8"))
+        out["synced_at"] = released.get("synced_at")
+        gkey = _graph_keys().get(world_id)
+        live = _load_graph(gkey) if gkey else None
+        if live is not None:
+            released.pop("synced_at", None)
+            out["in_sync"] = released == live
+    except Exception as exc:  # noqa: BLE001 — status is informational only
+        log.warning("live_bgs_v3: engine sync status for %s failed: %r", world_id, exc)
+    return out
 
 
 def save_graph(world_id: str, routes: list[dict[str, Any]], ui: dict[str, Any]) -> dict[str, Any]:

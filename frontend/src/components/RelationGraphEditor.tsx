@@ -268,6 +268,34 @@ export default function RelationGraphEditor({
   const [selEdgeId, setSelEdgeId] = useState<string | null>(null);
   const [editSlug, setEditSlug] = useState<string | null>(null);
 
+  // engine-channel release state (the "sync" button)
+  const [syncedAt, setSyncedAt] = useState<string | null>(null);
+  const [inSync, setInSync] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncErr, setSyncErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    apiV4.getEngineSync(world)
+      .then((s) => { if (alive) { setSyncedAt(s.synced_at); setInSync(s.in_sync); } })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [world]);
+
+  const syncToEngine = async () => {
+    if (!window.confirm("Graf engine kanaliga chiqarilsinmi? Keyingi hikoya-generatsiyalar shu versiyani ishlatadi.")) return;
+    setSyncing(true);
+    setSyncErr(null);
+    try {
+      const r = await apiV4.syncEngine(world);
+      setSyncedAt(r.synced_at);
+      setInSync(true);
+    } catch (e) {
+      setSyncErr(String((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? e));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const selEdge = edges.find((e) => e.id === selEdgeId) ?? null;
   const selRoute = (selEdge?.data as { route?: RelationRoute } | undefined)?.route ?? null;
 
@@ -360,6 +388,7 @@ export default function RelationGraphEditor({
       const saved = await apiV4.saveRelationGraph(world, { routes: [...untouched, ...edited], ui });
       baseRoutes.current = saved.routes; // re-sync so the next save merges against fresh state
       setDirty(false);
+      setInSync(false); // live sidecar just changed — engine channel is now behind
       onSaved();
     } catch (e) {
       setSaveErr(String((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? e));
@@ -401,10 +430,19 @@ export default function RelationGraphEditor({
         </span>
         <div className="ml-auto flex items-center gap-2">
           {saveErr && <span className="max-w-[300px] truncate text-[11px] text-red-600" title={saveErr}>{saveErr}</span>}
+          {syncErr && <span className="max-w-[300px] truncate text-[11px] text-red-600" title={syncErr}>{syncErr}</span>}
           {dirty && !saveErr && <span className="text-[11px] text-amber-600">saqlanmagan o'zgarishlar</span>}
+          <span className="text-[11px] text-gray-400" title="engine kanaliga oxirgi chiqarilgan versiya">
+            {inSync ? '🟢 engine bilan sinxron' : syncedAt ? `🟡 engine: ${new Date(syncedAt).toLocaleString()}` : '⚪ engine\'ga sync qilinmagan'}
+          </span>
           <button type="button" onClick={save} disabled={saving || !dirty}
                   className="rounded bg-blue-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-blue-700 disabled:opacity-40">
             {saving ? 'saqlanmoqda…' : '💾 saqlash'}
+          </button>
+          <button type="button" onClick={syncToEngine} disabled={syncing || dirty || inSync}
+                  title={dirty ? "avval saqlang — sync saqlangan holatni chiqaradi" : inSync ? 'engine kanali allaqachon shu versiyada' : "grafni engine kanaliga chiqarish (butun world)"}
+                  className="rounded bg-emerald-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-emerald-700 disabled:opacity-40">
+            {syncing ? 'sync…' : "⚙️ engine'ga sync"}
           </button>
           <button type="button" onClick={close}
                   className="rounded border border-gray-300 px-3 py-1.5 text-[12px] text-gray-600 hover:bg-gray-100">
