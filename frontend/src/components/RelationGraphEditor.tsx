@@ -43,11 +43,11 @@ const THUMB_H = 99;
 
 type EditorKind = 'path' | 'enter' | 'vista' | 'vehicle';
 
-const KIND_META: Record<EditorKind, { label: string; stroke: string; dash?: string; icon?: string }> = {
-  path: { label: "🚶 yo'l (path)", stroke: '#9ca3af' },
-  enter: { label: '🚪 eshik (enter)', stroke: '#d97706', icon: '🚪' },
-  vista: { label: '👁 vista', stroke: '#0d9488', dash: '7 5', icon: '👁' },
-  vehicle: { label: '🚀 transport', stroke: '#7c3aed', dash: '2 4', icon: '🚀' },
+const KIND_META: Record<EditorKind, { label: string; desc: string; stroke: string; dash?: string; icon?: string }> = {
+  path: { label: "🚶 yo'l", desc: "personaj yurib o'tadi — oddiy qo'shni joy", stroke: '#9ca3af' },
+  enter: { label: '🚪 kirish', desc: "ichkariga kiradi (uy, zina, g'or)", stroke: '#d97706', icon: '🚪' },
+  vista: { label: "👁 ko'rinish", desc: "narigi joy shu kadrda uzoqdan ko'rinib turadi", stroke: '#0d9488', dash: '7 5', icon: '👁' },
+  vehicle: { label: '🚀 transport', desc: 'uchib/suzib boradi (raketa, qayiq)', stroke: '#7c3aed', dash: '2 4', icon: '🚀' },
 };
 
 function kindOfRoute(r: RelationRoute): EditorKind {
@@ -494,17 +494,27 @@ export default function RelationGraphEditor({
             <div className="truncate text-[11px] text-gray-500">
               <b>{shortName(selRoute.from)}</b> → <b>{shortName(selRoute.to)}</b>
             </div>
-            <label className="block text-[11px] text-gray-600">
-              turi
-              <select
-                value={kindOfRoute(selRoute)}
-                onChange={(ev) => updateSelRoute((r) => applyKind(r, ev.target.value as EditorKind))}
-                className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-[12px]">
-                {(Object.keys(KIND_META) as EditorKind[]).map((k) => (
-                  <option key={k} value={k}>{KIND_META[k].label}</option>
-                ))}
-              </select>
-            </label>
+            <div className="space-y-1">
+              <span className="text-[11px] text-gray-600">turi</span>
+              {(Object.keys(KIND_META) as EditorKind[])
+                // transport faqat shu marshrut allaqachon transport bo'lsa chiqadi
+                .filter((k) => k !== 'vehicle' || kindOfRoute(selRoute) === 'vehicle')
+                .map((k) => {
+                  const m = KIND_META[k];
+                  const on = kindOfRoute(selRoute) === k;
+                  return (
+                    <button key={k} type="button"
+                            onClick={() => updateSelRoute((r) => applyKind(r, k))}
+                            className={['flex w-full items-baseline gap-2 rounded border px-2 py-1.5 text-left',
+                                        on ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'].join(' ')}>
+                      <span className="shrink-0 text-[12px] font-medium" style={{ color: on ? undefined : m.stroke }}>
+                        {m.label}
+                      </span>
+                      <span className="text-[10px] leading-tight text-gray-500">{m.desc}</span>
+                    </button>
+                  );
+                })}
+            </div>
             <label className="flex items-center gap-2 text-[11px] text-gray-600">
               <input type="checkbox" checked={selRoute.bidirectional}
                      onChange={(ev) => updateSelRoute((r) => ({ ...r, bidirectional: ev.target.checked }))} />
