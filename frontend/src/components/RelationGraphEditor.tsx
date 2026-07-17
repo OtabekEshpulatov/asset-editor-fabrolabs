@@ -74,10 +74,10 @@ function edgeVisual(r: RelationRoute, selected: boolean): Partial<Edge> {
   const m = KIND_META[kindOfRoute(r)];
   return {
     style: { stroke: m.stroke, strokeWidth: selected ? 4 : 2.5, strokeDasharray: m.dash },
+    // single arrowhead only (from → to) — double-headed arrows read confusingly;
+    // bidirectionality lives in the data and the edge panel's ⇄ checkbox
     markerEnd: { type: MarkerType.ArrowClosed, color: m.stroke, width: 18, height: 18 },
-    markerStart: r.bidirectional
-      ? { type: MarkerType.ArrowClosed, color: m.stroke, width: 18, height: 18 }
-      : undefined,
+    markerStart: undefined,
     label: m.icon,
     labelStyle: { fontSize: 14 },
     labelBgStyle: { fillOpacity: 0 },
