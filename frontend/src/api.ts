@@ -36,6 +36,18 @@ export interface RelationNode {
   ui?: { x: number; y: number } | null;
 }
 
+/** one background's transition toward a related bg (the transitions tab) */
+export interface BgTransition {
+  route_id: string;
+  /** which endpoint of the route sits ON this bg */
+  side: 'exit' | 'entry';
+  other: string;
+  other_url: string | null;
+  far: boolean;
+  center_pct: [number, number];
+  zone: string;
+}
+
 export interface RelationWorldGraph {
   world_id: string;
   version?: number;
@@ -271,6 +283,19 @@ export const apiV4 = {
   saveRelationGraph: (worldId: string, body: { routes: RelationRoute[]; ui: Record<string, { x: number; y: number }> }) =>
     client
       .put<RelationWorldGraph>(`/live-bgs-v3/${encodeURIComponent(worldId)}/graph`, body)
+      .then((r) => r.data),
+
+  getNodeTransitions: (slug: string) =>
+    client
+      .get<{ world_id: string; slug: string; transitions: BgTransition[] }>(
+        `/live-bgs-v3/transitions/${encodeURIComponent(slug)}`,
+      )
+      .then((r) => r.data),
+
+  setTransitionPoint: (worldId: string, body: { route_id: string; side: 'exit' | 'entry'; center_pct: [number, number] }) =>
+    client
+      .put<{ world_id: string; route_id: string; side: string; center_pct: [number, number]; screen_zone: string }>(
+        `/live-bgs-v3/${encodeURIComponent(worldId)}/transition-point`, body)
       .then((r) => r.data),
 
   getEngineSync: (worldId: string) =>

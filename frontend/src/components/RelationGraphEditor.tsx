@@ -398,16 +398,35 @@ export default function RelationGraphEditor({
     onClose();
   }, [dirty, onClose]);
 
+  // The popup's transitions tab writes endpoints straight to the sidecar; on
+  // close, pull the fresh endpoints into our held routes so a later graph
+  // save can't clobber those point edits with stale exit/entry dicts.
+  const closeEditPopup = useCallback(() => {
+    setEditSlug(null);
+    apiV4.getRelationGraph(world).then((fresh) => {
+      baseRoutes.current = fresh.routes;
+      const byId = new Map(fresh.routes.map((r) => [r.id, r]));
+      setEdges((es) => es.map((e) => {
+        const route = (e.data as { route: RelationRoute }).route;
+        const f = byId.get(route.id);
+        // merge only when the user hasn't rewired this edge meanwhile
+        if (!f || f.from !== route.from || f.to !== route.to) return e;
+        return { ...e, data: { route: { ...route, exit: f.exit, entry: f.entry } } };
+      }));
+      onSaved();
+    }).catch(() => {});
+  }, [world, setEdges, onSaved]);
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.stopPropagation();
-      if (editSlug) setEditSlug(null);
+      if (editSlug) closeEditPopup();
       else close();
     };
     window.addEventListener('keydown', h, { capture: true });
     return () => window.removeEventListener('keydown', h, { capture: true });
-  }, [editSlug, close]);
+  }, [editSlug, close, closeEditPopup]);
 
   return (
     <div className="fixed inset-0 z-[90] flex flex-col bg-gray-50">
@@ -522,7 +541,7 @@ export default function RelationGraphEditor({
       {editSlug && (
         <div className="fixed inset-0 z-[200] bg-black/60 p-4 md:p-8">
           <div className="relative h-full w-full overflow-hidden rounded-lg bg-white shadow-2xl">
-            <button type="button" onClick={() => setEditSlug(null)}
+            <button type="button" onClick={closeEditPopup}
                     className="absolute right-3 top-3 z-10 rounded-full border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 shadow hover:bg-gray-100">
               ✕ yopish (Esc)
             </button>
@@ -533,7 +552,7 @@ export default function RelationGraphEditor({
                       // same-origin: let Esc work even when focus is inside the iframe
                       try {
                         e.currentTarget.contentWindow?.addEventListener('keydown', (ke) => {
-                          if (ke.key === 'Escape') setEditSlug(null);
+                          if (ke.key === 'Escape') closeEditPopup();
                         });
                       } catch { /* cross-origin guard — never expected here */ }
                     }} />

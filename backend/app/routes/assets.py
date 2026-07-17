@@ -384,6 +384,33 @@ async def save_world_graph(world_id: str, body: GraphSaveIn) -> dict:
         raise HTTPException(status_code=422, detail=str(exc))
 
 
+@router.get("/live-bgs-v3/transitions/{slug}")
+async def get_node_transitions(slug: str) -> dict:
+    """One background's transitions (related bgs + the on-frame point of each)."""
+    try:
+        return await asyncio.to_thread(live_bgs_v3.node_transitions, slug)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"{slug!r} is not in any world graph")
+
+
+class TransitionPointIn(BaseModel):
+    route_id: str
+    side: str            # exit | entry — which endpoint sits on this bg
+    center_pct: list[float]
+
+
+@router.put("/live-bgs-v3/{world_id}/transition-point")
+async def set_transition_point(world_id: str, body: TransitionPointIn) -> dict:
+    """Move one route endpoint's on-frame point (the transitions tab editor)."""
+    try:
+        return await asyncio.to_thread(
+            live_bgs_v3.set_transition_point, world_id, body.route_id, body.side, body.center_pct)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no world graph {world_id!r}")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 @router.get("/live-bgs-v3/{world_id}/sync-engine")
 async def get_engine_sync(world_id: str) -> dict:
     """Last release of this world's graph to the engine channel (if any)."""

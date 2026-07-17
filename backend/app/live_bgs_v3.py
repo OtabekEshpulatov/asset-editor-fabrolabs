@@ -232,6 +232,92 @@ def save_graph(world_id: str, routes: list[dict[str, Any]], ui: dict[str, Any]) 
     return graph_view(world_id)
 
 
+def _screen_zone_for(x: float) -> str:
+    """Coarse horizontal label the engine uses alongside exact center_pct."""
+    if x < 12:
+        return "left_edge"
+    if x < 38:
+        return "left_third"
+    if x <= 62:
+        return "center"
+    if x <= 88:
+        return "right_third"
+    return "right_edge"
+
+
+def node_transitions(slug: str) -> dict[str, Any]:
+    """All transitions of ONE background: for each related route, the endpoint
+    that sits ON THIS bg (exit if from==slug; entry if to==slug on a
+    bidirectional route) plus the neighbor's mp4 url for preview. Searches
+    every world graph; raises KeyError if the slug is in none of them."""
+    for world_id, gkey in sorted(_graph_keys().items()):
+        doc = _load_graph(gkey)
+        if doc is None:
+            continue
+        if slug not in {n["slug"] for n in _node_dicts(doc)}:
+            continue
+        video_keys = videos._video_keys()
+        items = []
+        for r in doc.get("routes") or []:
+            if not isinstance(r, dict):
+                continue
+            if r.get("from") == slug:
+                side, other = "exit", r.get("to")
+            elif r.get("to") == slug and r.get("bidirectional", False):
+                side, other = "entry", r.get("from")
+            else:
+                continue
+            ep = r.get(side) if isinstance(r.get(side), dict) else {}
+            okey = video_keys.get(other)
+            items.append({
+                "route_id": r.get("id"),
+                "side": side,
+                "other": other,
+                "other_url": minio.public_url_for_key(okey) if okey else None,
+                "far": (r.get("portal") or {}).get("kind") == "edge",
+                "center_pct": ep.get("center_pct") or [50, 60],
+                "zone": ep.get("zone") or "floor",
+            })
+        return {"world_id": world_id, "slug": slug, "transitions": items}
+    raise KeyError(slug)
+
+
+def set_transition_point(world_id: str, route_id: str, side: str, center_pct: list[float]) -> dict[str, Any]:
+    """Move ONE route endpoint's on-frame point; screen_zone derives from x.
+    Everything else about the route is left untouched."""
+    if side not in ("exit", "entry"):
+        raise ValueError("side must be 'exit' or 'entry'")
+    if not isinstance(center_pct, (list, tuple)) or len(center_pct) != 2:
+        raise ValueError("center_pct must be [x, y]")
+    x = min(100.0, max(0.0, float(center_pct[0])))
+    y = min(100.0, max(0.0, float(center_pct[1])))
+    gkey = _graph_keys().get(world_id)
+    if gkey is None:
+        raise KeyError(world_id)
+    raw = minio.download_bytes(gkey)
+    doc = _load_graph(gkey)
+    if raw is None or doc is None:
+        raise KeyError(world_id)
+    for r in doc.get("routes") or []:
+        if isinstance(r, dict) and r.get("id") == route_id:
+            ep = dict(r[side]) if isinstance(r.get(side), dict) else {}
+            ep["center_pct"] = [round(x, 1), round(y, 1)]
+            ep["screen_zone"] = _screen_zone_for(x)
+            ep.setdefault("zone", "floor")
+            ep.setdefault("landmark_ids", [])
+            r[side] = ep
+            break
+    else:
+        raise ValueError(f"route {route_id!r} not found in world {world_id!r}")
+    minio.upload_bytes(raw, key=gkey + ".bak", content_type="application/json")
+    minio.upload_bytes(
+        json.dumps(doc, indent=2, ensure_ascii=False).encode("utf-8"),
+        key=gkey, content_type="application/json",
+    )
+    return {"world_id": world_id, "route_id": route_id, "side": side,
+            "center_pct": [round(x, 1), round(y, 1)], "screen_zone": _screen_zone_for(x)}
+
+
 def graph_view(world_id: str) -> dict[str, Any]:
     """The full graph for one world, with node URLs resolved — the data the
     relation-map UI draws. Raises KeyError for an unknown world."""

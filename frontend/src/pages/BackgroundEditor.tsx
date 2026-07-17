@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { apiV4, type BackgroundEditable, type BgZone } from '../api';
 import ObjectLayerEditor from '../components/ObjectLayerEditor';
+import TransitionPointEditor from '../components/TransitionPointEditor';
 
 // Preset colours for the well-known zone names; everything else falls back to a
 // hex palette (hex so it's valid for <input type="color"> and SVG fill-opacity).
@@ -86,8 +87,13 @@ export default function BackgroundEditorPage() {
   const [selected, setSelected] = useState<number | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [draft, setDraft] = useState<number[][]>([]);
-  // Live (mp4) backgrounds get a second mode that edits the moving objects.
-  const [mode, setMode] = useState<'zones' | 'objects'>('zones');
+  // Live (mp4) backgrounds get extra modes: moving objects + transition points.
+  type Mode = 'zones' | 'objects' | 'transitions';
+  const initialMode = ((): Mode => {
+    const t = new URLSearchParams(location.search).get('tab');
+    return t === 'objects' || t === 'transitions' ? t : 'zones';
+  })();
+  const [mode, setMode] = useState<Mode>(initialMode);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -109,7 +115,7 @@ export default function BackgroundEditorPage() {
     setSelected(null);
     setDrawing(false);
     setDraft([]);
-    setMode('zones');
+    setMode(initialMode);
     (isVideo ? apiV4.getVideo(slug) : apiV4.getBackground(slug))
       .then((d) => {
         if (!alive) return;
@@ -442,6 +448,13 @@ export default function BackgroundEditorPage() {
               >
                 Objects
               </button>
+              <button
+                onClick={() => setMode('transitions')}
+                title="bog'liq fonlarga o'tish nuqtalarini kadr ustida belgilash"
+                className={mode === 'transitions' ? 'rounded bg-blue-600 px-3 py-1 text-white' : 'px-3 py-1 text-gray-600'}
+              >
+                O'tishlar
+              </button>
             </div>
           )}
           <label className="flex items-center gap-1 text-sm text-gray-600" title="Disabled backgrounds are hidden everywhere">
@@ -504,6 +517,8 @@ export default function BackgroundEditorPage() {
 
       {isVideo && mode === 'objects' ? (
         <ObjectLayerEditor slug={data.slug} videoUrl={data.url} />
+      ) : isVideo && mode === 'transitions' ? (
+        <TransitionPointEditor slug={data.slug} videoUrl={data.url} />
       ) : (
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
         {/* Canvas with overlays */}
