@@ -26,11 +26,10 @@ const CARD_W = 132;
 
 const TOD_ICON: Record<string, string> = { day: '☀️', dusk: '🌆', night: '🌙' };
 
+/** two flavors only: yaqin (near, deep relation — solid) / uzoq (far break — dashed) */
 function edgeStyle(r: RelationRoute): { stroke: string; dash?: string; icon?: string; marker: string } {
-  if (r.relation === 'enter') return { stroke: '#d97706', icon: '🚪', marker: 'url(#arrow-amber)' };
-  if (r.portal === 'vista') return { stroke: '#0d9488', dash: '7 5', icon: '👁', marker: 'url(#arrow-teal)' };
-  if (r.portal === 'vehicle') return { stroke: '#7c3aed', dash: '2 4', icon: '🚀', marker: 'url(#arrow-violet)' };
-  return { stroke: '#9ca3af', marker: 'url(#arrow-gray)' };
+  if (r.portal === 'edge') return { stroke: '#9ca3af', dash: '6 6', marker: 'url(#arrow-gray)' };
+  return { stroke: '#475569', marker: 'url(#arrow-slate)' };
 }
 
 function shortName(slug: string, worldPrefixes: string[]): string {
@@ -150,7 +149,7 @@ function Thumb({ url, w, h }: { url: string | null; w: number; h: number }) {
 
 const ARROW_DEFS = (
   <defs>
-    {[['gray', '#9ca3af'], ['teal', '#0d9488'], ['amber', '#d97706'], ['violet', '#7c3aed']].map(([id, color]) => (
+    {[['slate', '#475569'], ['gray', '#9ca3af'], ['amber', '#f59e0b']].map(([id, color]) => (
       <marker key={id} id={`arrow-${id}`} viewBox="0 0 10 10" refX="9" refY="5"
               markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M 0 1 L 9 5 L 0 9 z" fill={color} />
@@ -520,7 +519,7 @@ export default function RelationWorldSection({
               <div className="w-[400px] shrink-0 space-y-2 self-start rounded-lg border border-gray-200 bg-white p-3 lg:sticky lg:top-28">
                 {!sel ? (
                   <div className="grid h-full min-h-[220px] place-items-center px-6 text-center text-sm text-gray-400">
-                    Bir fonni bosing — chiqishlari (yo'l, eshik, vista) kadrning ustida belgilanadi.
+                    Bir fonni bosing — chiqish nuqtalari kadrning ustida belgilanadi.
                   </div>
                 ) : (
                   <>
@@ -558,7 +557,7 @@ export default function RelationWorldSection({
                                     className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-[11px] text-gray-700 hover:bg-gray-50">
                               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: st.stroke }} />
                               <span className="truncate">
-                                {e.route.relation === 'enter' ? '🚪 enter' : e.route.portal === 'vista' ? '👁 vista' : '→ path'}
+                                {e.route.portal === 'edge' ? '🌫 uzoq' : '🔗 yaqin'}
                                 {' · '}<b>{shortName(e.other, prefixes)}</b>
                                 {crossCluster && <span className="ml-1 text-amber-700">({clusterTitle(clusterOf.get(e.other)!)})</span>}
                                 {' · '}[{e.pct[0]}, {e.pct[1]}]

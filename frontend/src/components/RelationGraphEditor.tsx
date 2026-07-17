@@ -41,29 +41,28 @@ const CARD = 190;
 const THUMB_W = 176;
 const THUMB_H = 99;
 
-type EditorKind = 'path' | 'enter' | 'vista' | 'vehicle';
+/**
+ * Just TWO relation flavors in the UI (the user's model):
+ * - yaqin (near): the places touch — our deep relations. Any underlying
+ *   subtype (walkway / door / stair / vista…) stays intact in the data.
+ * - uzoq (far): a long break between them — the character walks off frame
+ *   and arrives later. Stored as relation=path + portal=edge.
+ */
+type EditorKind = 'near' | 'far';
 
-const KIND_META: Record<EditorKind, { label: string; desc: string; stroke: string; dash?: string; icon?: string }> = {
-  path: { label: "🚶 yo'l", desc: "personaj yurib o'tadi — oddiy qo'shni joy", stroke: '#9ca3af' },
-  enter: { label: '🚪 kirish', desc: "ichkariga kiradi (uy, zina, g'or)", stroke: '#d97706', icon: '🚪' },
-  vista: { label: "👁 ko'rinish", desc: "narigi joy shu kadrda uzoqdan ko'rinib turadi", stroke: '#0d9488', dash: '7 5', icon: '👁' },
-  vehicle: { label: '🚀 transport', desc: 'uchib/suzib boradi (raketa, qayiq)', stroke: '#7c3aed', dash: '2 4', icon: '🚀' },
+const KIND_META: Record<EditorKind, { label: string; desc: string; stroke: string; dash?: string }> = {
+  near: { label: '🔗 yaqin', desc: "joylar tutash — o'tish kadrda ko'rinadi (chuqur relation)", stroke: '#475569' },
+  far: { label: '🌫 uzoq', desc: "orasida uzoq yo'l bor — kadrdan chiqib, keyin yetib boradi", stroke: '#9ca3af', dash: '6 6' },
 };
 
 function kindOfRoute(r: RelationRoute): EditorKind {
-  if (r.relation === 'enter') return 'enter';
-  if (r.portal === 'vista') return 'vista';
-  if (r.portal === 'vehicle') return 'vehicle';
-  return 'path';
+  return r.portal === 'edge' ? 'far' : 'near';
 }
 
 function applyKind(r: RelationRoute, kind: EditorKind): RelationRoute {
-  // keep a compatible existing portal kind (arch/gate/stair/edge…) instead of clobbering it
-  if (kind === 'enter')
-    return { ...r, relation: 'enter', portal: ['door', 'arch', 'gate', 'stair'].includes(r.portal) ? r.portal : 'door' };
-  if (kind === 'vista') return { ...r, relation: 'path', portal: 'vista' };
-  if (kind === 'vehicle') return { ...r, relation: 'path', portal: 'vehicle' };
-  return { ...r, relation: 'path', portal: ['walkway', 'edge'].includes(r.portal) ? r.portal : 'walkway' };
+  if (kind === 'far') return { ...r, relation: 'path', portal: 'edge' };
+  // near: only pull it back from 'edge'; existing subtypes (door/stair/vista…) are preserved
+  return r.portal === 'edge' ? { ...r, relation: 'path', portal: 'walkway' } : { ...r };
 }
 
 const DEFAULT_ENDPOINT = () => ({
@@ -78,9 +77,6 @@ function edgeVisual(r: RelationRoute, selected: boolean): Partial<Edge> {
     // bidirectionality lives in the data and the edge panel's ⇄ checkbox
     markerEnd: { type: MarkerType.ArrowClosed, color: m.stroke, width: 18, height: 18 },
     markerStart: undefined,
-    label: m.icon,
-    labelStyle: { fontSize: 14 },
-    labelBgStyle: { fillOpacity: 0 },
   };
 }
 
@@ -496,24 +492,19 @@ export default function RelationGraphEditor({
             </div>
             <div className="space-y-1">
               <span className="text-[11px] text-gray-600">turi</span>
-              {(Object.keys(KIND_META) as EditorKind[])
-                // transport faqat shu marshrut allaqachon transport bo'lsa chiqadi
-                .filter((k) => k !== 'vehicle' || kindOfRoute(selRoute) === 'vehicle')
-                .map((k) => {
-                  const m = KIND_META[k];
-                  const on = kindOfRoute(selRoute) === k;
-                  return (
-                    <button key={k} type="button"
-                            onClick={() => updateSelRoute((r) => applyKind(r, k))}
-                            className={['flex w-full items-baseline gap-2 rounded border px-2 py-1.5 text-left',
-                                        on ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'].join(' ')}>
-                      <span className="shrink-0 text-[12px] font-medium" style={{ color: on ? undefined : m.stroke }}>
-                        {m.label}
-                      </span>
-                      <span className="text-[10px] leading-tight text-gray-500">{m.desc}</span>
-                    </button>
-                  );
-                })}
+              {(Object.keys(KIND_META) as EditorKind[]).map((k) => {
+                const m = KIND_META[k];
+                const on = kindOfRoute(selRoute) === k;
+                return (
+                  <button key={k} type="button"
+                          onClick={() => { if (!on) updateSelRoute((r) => applyKind(r, k)); }}
+                          className={['flex w-full items-baseline gap-2 rounded border px-2 py-1.5 text-left',
+                                      on ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'].join(' ')}>
+                    <span className="shrink-0 text-[12px] font-medium">{m.label}</span>
+                    <span className="text-[10px] leading-tight text-gray-500">{m.desc}</span>
+                  </button>
+                );
+              })}
             </div>
             <label className="flex items-center gap-2 text-[11px] text-gray-600">
               <input type="checkbox" checked={selRoute.bidirectional}
