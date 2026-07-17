@@ -32,6 +32,8 @@ export interface RelationNode {
   status: string;
   /** themed district (e.g. "great_oak"); cross-cluster routes are gateways */
   cluster?: string | null;
+  /** editor canvas position saved from the relation graph editor */
+  ui?: { x: number; y: number } | null;
 }
 
 export interface RelationWorldGraph {
@@ -264,6 +266,11 @@ export const apiV4 = {
   getRelationGraph: (worldId: string) =>
     client
       .get<RelationWorldGraph>(`/live-bgs-v3/${encodeURIComponent(worldId)}/graph`)
+      .then((r) => r.data),
+
+  saveRelationGraph: (worldId: string, body: { routes: RelationRoute[]; ui: Record<string, { x: number; y: number }> }) =>
+    client
+      .put<RelationWorldGraph>(`/live-bgs-v3/${encodeURIComponent(worldId)}/graph`, body)
       .then((r) => r.data),
 
   getBackground: (slug: string) =>

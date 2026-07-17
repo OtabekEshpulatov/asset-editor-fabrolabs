@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiV4, type RelationNode, type RelationRoute } from '../api';
+import RelationGraphEditor from './RelationGraphEditor';
 
 /**
  * Live BG v3 — relation map for one world, organized as THEMED DISTRICTS.
@@ -117,7 +118,17 @@ function layoutCluster(nodes: RelationNode[], routes: RelationRoute[]) {
   };
 }
 
+/** ?novideo=1 — debug/slow-link mode: draw placeholders instead of loading mp4s */
+const NO_VIDEO = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('novideo');
+
 function Thumb({ url, w, h }: { url: string | null; w: number; h: number }) {
+  if (NO_VIDEO && url) {
+    return (
+      <div className="grid place-items-center bg-emerald-100 text-[9px] text-emerald-700" style={{ width: w, height: h }}>
+        🎞
+      </div>
+    );
+  }
   if (!url) {
     return (
       <div className="grid place-items-center bg-gray-200 text-[9px] text-gray-500" style={{ width: w, height: h }}>
@@ -179,11 +190,13 @@ export default function RelationWorldSection({
     queryFn: () => apiV4.getRelationGraph(world),
     staleTime: 5 * 60 * 1000,
   });
+  const qc = useQueryClient();
   const nodes = data?.nodes ?? [];
   const routes = data?.routes ?? [];
   const clusterMeta = data?.clusters ?? {};
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [editorDistrict, setEditorDistrict] = useState<string | null>(null);
   const sel = nodes.find((x) => x.slug === selected) ?? null;
 
   // hover-intent: short delay in, grace period out — no flicker while the
@@ -254,10 +267,10 @@ export default function RelationWorldSection({
     window.setTimeout(() => setPulsed((p) => (p === slug ? null : p)), 1600);
   };
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelected(null); };
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !editorDistrict) setSelected(null); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, []);
+  }, [editorDistrict]);
 
   const layouts = useMemo(() => {
     const m = new Map<string, ReturnType<typeof layoutCluster> & { members: RelationNode[] }>();
@@ -303,7 +316,9 @@ export default function RelationWorldSection({
           {isLoading && <div className="py-8 text-sm text-gray-500">Loading graph…</div>}
           {error != null && <div className="py-4 text-sm text-red-600">Failed to load graph: {String(error)}</div>}
 
-          {data && (
+          {/* while the fullscreen editor is open, unmount the map so its ~20
+              videos stop streaming behind the overlay */}
+          {data && !editorDistrict && (
             <div className="flex flex-wrap items-start gap-4">
               <div className="min-w-[660px] flex-1 space-y-4">
                 <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-2 text-[12px]">
@@ -368,8 +383,16 @@ export default function RelationWorldSection({
                                   pointerEvents: mutedDistrict ? 'none' : undefined, transition: 'opacity .4s ease, filter .4s ease' }}>
                       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2">
                         <span className="text-sm font-semibold text-gray-700">{clusterTitle(key)}</span>
-                        <span className="text-[11px] text-gray-400">
-                          {selected && selectedCluster === key ? `${occ.length} ko'rinmoqda` : `${L.members.length} bg`}
+                        <span className="flex items-center gap-3">
+                          <span className="text-[11px] text-gray-400">
+                            {selected && selectedCluster === key ? `${occ.length} ko'rinmoqda` : `${L.members.length} bg`}
+                          </span>
+                          <button type="button"
+                                  onClick={() => setEditorDistrict(key)}
+                                  title="katta editor: kartalarni surish, strelkalarni ulash/tahrirlash"
+                                  className="rounded border border-gray-300 px-2 py-0.5 text-[11px] text-gray-600 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700">
+                            🛠 editor
+                          </button>
                         </span>
                       </div>
                       <div className="overflow-x-auto" style={{ scrollbarGutter: 'stable' }}>
@@ -552,6 +575,17 @@ export default function RelationWorldSection({
                 )}
               </div>
             </div>
+          )}
+
+          {data && editorDistrict && (
+            <RelationGraphEditor
+              world={world}
+              district={editorDistrict}
+              graph={data}
+              clusterTitle={clusterTitle}
+              onClose={() => setEditorDistrict(null)}
+              onSaved={() => qc.invalidateQueries({ queryKey: ['relation-graph', world] })}
+            />
           )}
         </>
       )}

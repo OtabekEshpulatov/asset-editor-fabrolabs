@@ -367,6 +367,23 @@ async def get_world_graph(world_id: str) -> dict:
         raise HTTPException(status_code=404, detail=f"no world graph {world_id!r}")
 
 
+class GraphSaveIn(BaseModel):
+    routes: list[dict] = []
+    ui: dict[str, dict] = {}  # slug -> {x, y} editor positions
+
+
+@router.put("/live-bgs-v3/{world_id}/graph")
+async def save_world_graph(world_id: str, body: GraphSaveIn) -> dict:
+    """Persist relation-editor edits (rewired/new/deleted routes + card
+    positions) back to the world's sidecar. Nodes are never added or removed."""
+    try:
+        return await asyncio.to_thread(live_bgs_v3.save_graph, world_id, body.routes, body.ui)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no world graph {world_id!r}")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 # --- asset management: add new / rename existing -----------------------------
 
 @router.post("/assets/objects", status_code=201)

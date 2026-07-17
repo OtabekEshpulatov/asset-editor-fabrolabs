@@ -104,6 +104,84 @@ def catalog(*, include_disabled: bool = False) -> dict[str, Any]:
     return {"kind": "video_v3", "total": total, "categories": categories}
 
 
+_ALLOWED_RELATIONS = {"path", "enter"}
+
+
+def save_graph(world_id: str, routes: list[dict[str, Any]], ui: dict[str, Any]) -> dict[str, Any]:
+    """Persist graph edits from the relation editor: the route list (rewired /
+    created / deleted arrows) and per-node editor positions. Nodes themselves
+    are never added or removed here — the graph editor only rearranges and
+    rewires what exists. The previous sidecar is kept as ``<key>.bak``.
+
+    ``routes`` arrive in the flattened view shape (``portal`` as a string) and
+    are stored back in sidecar shape (``portal: {kind}``). Unknown slugs or
+    malformed routes raise ValueError.
+    """
+    gkey = _graph_keys().get(world_id)
+    if gkey is None:
+        raise KeyError(world_id)
+    raw = minio.download_bytes(gkey)
+    doc = _load_graph(gkey)
+    if raw is None or doc is None:
+        raise KeyError(world_id)
+    known = {n["slug"] for n in _node_dicts(doc)}
+    old_routes = {r.get("id"): r for r in doc.get("routes") or [] if isinstance(r, dict)}
+
+    norm_routes: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for r in routes:
+        if not isinstance(r, dict):
+            raise ValueError("route entries must be objects")
+        rid = str(r.get("id") or "").strip()
+        frm, to = r.get("from"), r.get("to")
+        if not rid or rid in seen_ids:
+            raise ValueError(f"route id missing or duplicated: {rid!r}")
+        seen_ids.add(rid)
+        if frm not in known or to not in known:
+            raise ValueError(f"route {rid!r} references unknown background: {frm!r} -> {to!r}")
+        if frm == to:
+            raise ValueError(f"route {rid!r} connects a background to itself")
+        relation = str(r.get("relation") or "path")
+        if relation not in _ALLOWED_RELATIONS:
+            raise ValueError(f"route {rid!r} has unknown relation {relation!r}")
+        portal = r.get("portal")
+        portal_kind = str(portal.get("kind") if isinstance(portal, dict) else portal or "walkway")
+        # keep any extra portal fields (e.g. transition) the editor doesn't know about
+        old_portal = old_routes.get(rid, {}).get("portal")
+        if isinstance(old_portal, dict):
+            portal_out = {**old_portal, "kind": portal_kind}
+        else:
+            portal_out = {"kind": portal_kind}
+        norm_routes.append({
+            "id": rid,
+            "from": frm,
+            "to": to,
+            "bidirectional": bool(r.get("bidirectional", True)),
+            "relation": relation,
+            "portal": portal_out,
+            "exit": r.get("exit") if isinstance(r.get("exit"), dict) else {},
+            "entry": r.get("entry") if isinstance(r.get("entry"), dict) else {},
+        })
+
+    # editor positions live at DOC level ("editor_ui"), never on nodes — the
+    # engine's NodeSpec is extra="forbid", so node-level extras would break a
+    # future bucket→engine sync. Unknown top-level keys are ignored there.
+    editor_ui = doc.get("editor_ui") if isinstance(doc.get("editor_ui"), dict) else {}
+    for slug, pos in ui.items():
+        if slug in known and isinstance(pos, dict) and "x" in pos and "y" in pos:
+            editor_ui[slug] = {"x": round(float(pos["x"]), 1), "y": round(float(pos["y"]), 1)}
+    doc["editor_ui"] = editor_ui
+    doc["nodes"] = [{k: v for k, v in n.items() if k != "ui"} for n in _node_dicts(doc)]
+    doc["routes"] = norm_routes
+
+    minio.upload_bytes(raw, key=gkey + ".bak", content_type="application/json")
+    minio.upload_bytes(
+        json.dumps(doc, indent=2, ensure_ascii=False).encode("utf-8"),
+        key=gkey, content_type="application/json",
+    )
+    return graph_view(world_id)
+
+
 def graph_view(world_id: str) -> dict[str, Any]:
     """The full graph for one world, with node URLs resolved — the data the
     relation-map UI draws. Raises KeyError for an unknown world."""
@@ -115,6 +193,7 @@ def graph_view(world_id: str) -> dict[str, Any]:
         raise KeyError(world_id)
     video_keys = videos._video_keys()
     manifest = videos._read_manifest()
+    editor_ui = doc.get("editor_ui") if isinstance(doc.get("editor_ui"), dict) else {}
     nodes = []
     for n in _node_dicts(doc):
         slug = n["slug"]
@@ -129,6 +208,7 @@ def graph_view(world_id: str) -> dict[str, Any]:
             "parent": n.get("parent"),
             "status": str(n.get("status") or "active"),
             "cluster": n.get("cluster"),
+            "ui": editor_ui.get(slug) if isinstance(editor_ui.get(slug), dict) else None,
         })
     routes = []
     for r in doc.get("routes") or []:
