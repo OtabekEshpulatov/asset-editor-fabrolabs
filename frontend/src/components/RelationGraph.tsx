@@ -172,13 +172,46 @@ export default function RelationWorldSection({
   );
 
   const layouts = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof layoutCluster> & { members: RelationNode[] }>();
+    const bySlug = new Map(nodes.map((n) => [n.slug, n]));
+    const m = new Map<string, ReturnType<typeof layoutCluster> & {
+      members: RelationNode[];
+      ghosts: { node: RelationNode; x: number; y: number }[];
+      ghostEdges: { from: string; toGhost: string; route: RelationRoute }[];
+      fullWidth: number;
+      fullHeight: number;
+    }>();
     for (const key of clusterKeys) {
       const members = nodes.filter((n) => (n.cluster || 'all') === key);
-      m.set(key, { ...layoutCluster(members, routes), members });
+      const L = layoutCluster(members, routes);
+      // neighbor-district targets appear INSIDE this card as distinct "guest"
+      // cards in a separate right-hand lane, each pointed at by an amber arrow
+      const gws = gateways.filter(
+        (g) => clusterOf.get(g.from) === key || clusterOf.get(g.to) === key,
+      );
+      const ghostSlugs = [...new Set(gws.map((g) => (clusterOf.get(g.from) === key ? g.to : g.from)))];
+      const ghostX = L.width - PAD_X + COL_W + 30;
+      const fullHeight = Math.max(L.height, PAD_Y * 2 + (ghostSlugs.length - 1) * ROW_H);
+      const ghosts = ghostSlugs
+        .map((slug, i) => {
+          const node = bySlug.get(slug);
+          if (!node) return null;
+          const y = fullHeight / 2 + (i - (ghostSlugs.length - 1) / 2) * ROW_H;
+          return { node, x: ghostX, y };
+        })
+        .filter(Boolean) as { node: RelationNode; x: number; y: number }[];
+      const ghostEdges = gws.map((g) => {
+        const inner = clusterOf.get(g.from) === key ? g.from : g.to;
+        const outer = clusterOf.get(g.from) === key ? g.to : g.from;
+        return { from: inner, toGhost: outer, route: g };
+      });
+      m.set(key, {
+        ...L, members, ghosts, ghostEdges,
+        fullWidth: ghosts.length ? ghostX + PAD_X : L.width,
+        fullHeight,
+      });
     }
     return m;
-  }, [clusterKeys, nodes, routes]);
+  }, [clusterKeys, nodes, routes, gateways, clusterOf]);
 
   const exits = useMemo(() => {
     if (!sel) return [];
@@ -257,9 +290,6 @@ export default function RelationWorldSection({
                 {/* ── one compact card per district ─────────────────────── */}
                 {clusterKeys.map((key) => {
                   const L = layouts.get(key)!;
-                  const myGateways = gateways.filter(
-                    (g) => clusterOf.get(g.from) === key || clusterOf.get(g.to) === key,
-                  );
                   return (
                     <div key={key} id={`cluster-${world}-${key}`}
                          className="rounded-lg border border-gray-200 bg-white">
@@ -268,9 +298,41 @@ export default function RelationWorldSection({
                         <span className="text-[11px] text-gray-400">{L.members.length} bg</span>
                       </div>
                       <div className="overflow-x-auto">
-                        <div className="relative" style={{ width: L.width, height: L.height }}>
-                          <svg className="absolute inset-0" width={L.width} height={L.height}>
+                        <div className="relative" style={{ width: L.fullWidth, height: L.fullHeight }}>
+                          {L.ghosts.length > 0 && (
+                            <>
+                              <div
+                                className="absolute top-2 bottom-2 border-l-2 border-dashed border-amber-300"
+                                style={{ left: L.width - PAD_X + COL_W / 2 }}
+                              />
+                              <div
+                                className="absolute top-2 -translate-x-1/2 rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                                style={{ left: L.ghosts[0].x }}
+                              >
+                                ⇄ qo'shni bo'limlar
+                              </div>
+                            </>
+                          )}
+                          <svg className="absolute inset-0" width={L.fullWidth} height={L.fullHeight}>
                             {ARROW_DEFS}
+                            {L.ghostEdges.map((ge) => {
+                              const a = L.pos.get(ge.from);
+                              const g = L.ghosts.find((x) => x.node.slug === ge.toGhost);
+                              if (!a || !g) return null;
+                              const active = selected === ge.from || selected === ge.toGhost;
+                              const x1 = a.x + CARD_W / 2;
+                              const x2 = g.x - CARD_W / 2 - 8;
+                              const midX = (x1 + x2) / 2;
+                              return (
+                                <path key={`ghost-${ge.route.id}-${ge.from}`}
+                                      d={`M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${g.y}, ${x2} ${g.y}`}
+                                      fill="none" stroke="#f59e0b"
+                                      strokeWidth={active ? 3.5 : 2.5}
+                                      strokeDasharray="8 5" markerEnd="url(#arrow-amber)">
+                                  <title>{`${ge.from} ⇄ ${ge.toGhost} (boshqa bo'limga o'tish)`}</title>
+                                </path>
+                              );
+                            })}
                             {L.edges.map((r) => {
                               const a = L.pos.get(r.from);
                               const b = L.pos.get(r.to);
@@ -325,30 +387,41 @@ export default function RelationWorldSection({
                               </button>
                             );
                           })}
-                        </div>
-                      </div>
-                      {myGateways.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 px-4 py-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">gateways</span>
-                          {myGateways.map((g) => {
-                            const innerFirst = clusterOf.get(g.from) === key;
-                            const inner = innerFirst ? g.from : g.to;
-                            const outer = innerFirst ? g.to : g.from;
+                          {/* GUEST cards: the actual neighbor-district bgs, visually
+                              distinct (amber dashed) — click jumps to their card */}
+                          {L.ghosts.map((g) => {
+                            const isSel = selected === g.node.slug;
                             return (
                               <button
-                                key={g.id}
+                                key={`ghost-${g.node.slug}`}
                                 type="button"
-                                onClick={() => jumpTo(outer)}
-                                className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] text-amber-900 hover:bg-amber-100"
-                                title={`${inner} ⇄ ${outer}`}
+                                onClick={() => jumpTo(g.node.slug)}
+                                title={`${g.node.slug} — ${clusterTitle(clusterOf.get(g.node.slug)!)} bo'limiga o'tish`}
+                                className={[
+                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border-2 border-dashed p-1 shadow-sm transition',
+                                  isSel ? 'z-10 border-amber-500 bg-amber-100 ring-2 ring-amber-300'
+                                        : 'border-amber-400 bg-amber-50 hover:bg-amber-100',
+                                ].join(' ')}
+                                style={{ left: g.x, top: g.y, width: CARD_W }}
                               >
-                                {shortName(inner, prefixes)} ⇄ <b>{shortName(outer, prefixes)}</b>
-                                <span className="ml-1 text-amber-600">{clusterTitle(clusterOf.get(outer)!)}</span>
+                                <div className="relative overflow-hidden rounded">
+                                  <Thumb url={g.node.url} w={120} h={68} />
+                                  <span className="absolute left-0.5 top-0.5 rounded bg-black/55 px-1 text-[9px] text-white">
+                                    {TOD_ICON[g.node.tod] ?? ''}{g.node.indoor ? ' ■' : ''}
+                                  </span>
+                                  <span className="absolute right-0.5 top-0.5 rounded bg-amber-500/90 px-1 text-[9px] font-bold text-white">↗</span>
+                                </div>
+                                <span className="w-full truncate text-center text-[10px] font-medium leading-tight text-amber-900">
+                                  {shortName(g.node.slug, prefixes)}
+                                </span>
+                                <span className="w-full truncate text-center text-[9px] leading-tight text-amber-600">
+                                  {clusterTitle(clusterOf.get(g.node.slug)!)}
+                                </span>
                               </button>
                             );
                           })}
                         </div>
-                      )}
+                      </div>
                     </div>
                   );
                 })}
