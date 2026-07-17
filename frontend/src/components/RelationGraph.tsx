@@ -143,6 +143,15 @@ export default function RelationWorldSection({
   const routes = data?.routes ?? [];
   const clusterMeta = data?.clusters ?? {};
   const [selected, setSelected] = useState<string | null>(null);
+  // Professional edge emphasis: lines sit almost invisible; hovering OR
+  // selecting a bg lights up only ITS routes and fades the rest away.
+  const [hovered, setHovered] = useState<string | null>(null);
+  const focus = hovered ?? selected;
+  const edgeEmphasis = (a: string, b: string) => {
+    if (!focus) return { opacity: 0.14, width: 2, showIcon: false };
+    if (a === focus || b === focus) return { opacity: 1, width: 3.5, showIcon: true };
+    return { opacity: 0.04, width: 2, showIcon: false };
+  };
   const sel = nodes.find((x) => x.slug === selected) ?? null;
 
   const prefixes = useMemo(() => {
@@ -283,7 +292,7 @@ export default function RelationWorldSection({
                     })}
                   </div>
                   <div className="mt-1 text-[11px] text-gray-400">
-                    → arrows = walk order (routes work both ways) · — path · ┅ vista · 🚪 enter · districts connect through the amber gateways
+                    lines stay faint — HOVER or CLICK a bg to light up only ITS routes · — path · ┅ vista · 🚪 enter · amber = gateway to a neighbor district
                   </div>
                 </div>
 
@@ -319,7 +328,7 @@ export default function RelationWorldSection({
                               const a = L.pos.get(ge.from);
                               const g = L.ghosts.find((x) => x.node.slug === ge.toGhost);
                               if (!a || !g) return null;
-                              const active = selected === ge.from || selected === ge.toGhost;
+                              const em = edgeEmphasis(ge.from, ge.toGhost);
                               const x1 = a.x + CARD_W / 2;
                               const x2 = g.x - CARD_W / 2 - 8;
                               const midX = (x1 + x2) / 2;
@@ -327,7 +336,8 @@ export default function RelationWorldSection({
                                 <path key={`ghost-${ge.route.id}-${ge.from}`}
                                       d={`M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${g.y}, ${x2} ${g.y}`}
                                       fill="none" stroke="#f59e0b"
-                                      strokeWidth={active ? 3.5 : 2.5}
+                                      opacity={em.opacity}
+                                      strokeWidth={em.width}
                                       strokeDasharray="8 5" markerEnd="url(#arrow-amber)">
                                   <title>{`${ge.from} ⇄ ${ge.toGhost} (boshqa bo'limga o'tish)`}</title>
                                 </path>
@@ -338,19 +348,19 @@ export default function RelationWorldSection({
                               const b = L.pos.get(r.to);
                               if (!a || !b) return null;
                               const st = edgeStyle(r);
-                              const active = selected != null && (r.from === selected || r.to === selected);
+                              const em = edgeEmphasis(r.from, r.to);
                               const x1 = a.x + CARD_W / 2;
                               const x2 = b.x - CARD_W / 2 - 8;
                               const midX = (x1 + x2) / 2;
                               return (
-                                <g key={r.id}>
+                                <g key={r.id} opacity={em.opacity}>
                                   <path d={`M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${b.y}, ${x2} ${b.y}`}
                                         fill="none" stroke={st.stroke}
-                                        strokeWidth={active ? 3.5 : 2.5}
+                                        strokeWidth={em.width}
                                         strokeDasharray={st.dash} markerEnd={st.marker}>
                                     <title>{`${r.from} ↔ ${r.to} (${r.relation === 'enter' ? 'enter' : r.portal})`}</title>
                                   </path>
-                                  {st.icon && (
+                                  {st.icon && em.showIcon && (
                                     <text x={midX} y={(a.y + b.y) / 2 - 7} textAnchor="middle" fontSize="13"
                                           style={{ pointerEvents: 'none' }}>
                                       {st.icon}
@@ -369,6 +379,8 @@ export default function RelationWorldSection({
                                 key={n.slug}
                                 type="button"
                                 onClick={() => setSelected(isSel ? null : n.slug)}
+                                onMouseEnter={() => setHovered(n.slug)}
+                                onMouseLeave={() => setHovered(null)}
                                 className={[
                                   'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm transition',
                                   isSel ? 'z-10 border-blue-500 ring-2 ring-blue-300' : 'border-gray-200 hover:border-blue-300',
@@ -396,6 +408,8 @@ export default function RelationWorldSection({
                                 key={`ghost-${g.node.slug}`}
                                 type="button"
                                 onClick={() => jumpTo(g.node.slug)}
+                                onMouseEnter={() => setHovered(g.node.slug)}
+                                onMouseLeave={() => setHovered(null)}
                                 title={`${g.node.slug} — ${clusterTitle(clusterOf.get(g.node.slug)!)} bo'limiga o'tish`}
                                 className={[
                                   'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border-2 border-dashed p-1 shadow-sm transition',
