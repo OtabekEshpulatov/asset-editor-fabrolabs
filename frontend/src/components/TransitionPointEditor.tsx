@@ -3,16 +3,22 @@ import { apiV4, type BgTransition } from '../api';
 
 /**
  * "O'tishlar" tab of the zone editor: mark WHERE on this background each
- * transition to a related bg happens (the camera / character heads there).
+ * transition happens — split into two flavors with distinct colors:
+ * - O'TISH (blue, side=exit): departure — the character/camera LEAVES this
+ *   bg here, heading to the related bg.
+ * - KELISH (green, side=entry): arrival — characters coming FROM the
+ *   related bg appear here.
  *
- * - the right panel lists every related bg (from the world graph) with a
- *   thumbnail; click one to make it active;
- * - click anywhere on the frame (or drag the dot) to place its point;
- * - each change saves immediately to the world sidecar (center_pct +
- *   derived screen_zone) — no separate save button.
+ * Pick an item, then click the frame (or drag its dot). Every change saves
+ * immediately to the world sidecar (center_pct + derived screen_zone).
  */
 
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n * 10) / 10));
+
+const SIDE_META = {
+  exit: { color: '#2563eb', chip: "O'TISH", arrow: '→', title: "O'tish (bu yerdan chiqib ketish)" },
+  entry: { color: '#16a34a', chip: 'KELISH', arrow: '←', title: 'Kelish (bu yerga kirib kelish)' },
+} as const;
 
 function shortName(slug: string): string {
   return slug.replace(/_live$/, '').replace(/^[a-z]+_/, '').replace(/_/g, ' ');
@@ -24,7 +30,7 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
   const [notInGraph, setNotInGraph] = useState(false);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<number | null>(null);
-  const [savedTick, setSavedTick] = useState<string | null>(null); // route_id just saved
+  const [savedTick, setSavedTick] = useState<string | null>(null); // route_id+side just saved
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragIdx = useRef<number | null>(null);
@@ -39,8 +45,10 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
       .then((d) => {
         if (!alive) return;
         setWorldId(d.world_id);
-        setItems(d.transitions);
-        if (d.transitions.length) setActive(0);
+        // departures first, then arrivals — same order as the panel sections
+        const sorted = [...d.transitions].sort((a, b) => (a.side === b.side ? 0 : a.side === 'exit' ? -1 : 1));
+        setItems(sorted);
+        if (sorted.length) setActive(0);
       })
       .catch((e) => {
         if (!alive) return;
@@ -59,6 +67,8 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
     };
   };
 
+  const keyOf = (it: BgTransition) => it.route_id + it.side;
+
   const persist = async (idx: number, x: number, y: number) => {
     const it = items[idx];
     if (!worldId || !it) return;
@@ -67,8 +77,8 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
       await apiV4.setTransitionPoint(worldId, {
         route_id: it.route_id, side: it.side, center_pct: [x, y],
       });
-      setSavedTick(it.route_id);
-      window.setTimeout(() => setSavedTick((t) => (t === it.route_id ? null : t)), 1500);
+      setSavedTick(keyOf(it));
+      window.setTimeout(() => setSavedTick((t) => (t === keyOf(it) ? null : t)), 1500);
     } catch (e) {
       setError(String((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? e));
     }
@@ -113,6 +123,42 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
     );
   }
 
+  const renderItem = (it: BgTransition) => {
+    const i = items.indexOf(it);
+    const isActive = active === i;
+    const m = SIDE_META[it.side];
+    return (
+      <button key={keyOf(it)} type="button" onClick={() => setActive(i)}
+              className={['flex w-full items-center gap-2 rounded border p-2 text-left',
+                          isActive ? 'bg-blue-50/40' : 'hover:bg-gray-50'].join(' ')}
+              style={{ borderColor: isActive ? m.color : '#e5e7eb' }}>
+        <div className="h-[45px] w-20 shrink-0 overflow-hidden rounded bg-gray-200">
+          {it.other_url && (
+            <video src={`${it.other_url}#t=0.04`} muted playsInline preload="metadata"
+                   className="h-full w-full object-cover" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px] font-medium text-gray-800">
+            <span style={{ color: m.color }}>{m.arrow}</span> {shortName(it.other)}
+          </div>
+          <div className="text-[10px] text-gray-500">
+            {it.far ? '🌫 uzoq' : '🔗 yaqin'} · nuqta: [{it.center_pct[0]}, {it.center_pct[1]}]
+            {savedTick === keyOf(it) && <span className="ml-1 text-green-600">✓</span>}
+          </div>
+        </div>
+        {isActive && (
+          <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-white" style={{ background: m.color }}>
+            belgilanmoqda
+          </span>
+        )}
+      </button>
+    );
+  };
+
+  const exits = items.filter((it) => it.side === 'exit');
+  const entries = items.filter((it) => it.side === 'entry');
+
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
       {/* canvas */}
@@ -132,9 +178,9 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
         )}
         {items.map((it, i) => {
           const isActive = active === i;
-          const color = it.far ? '#9ca3af' : '#475569';
+          const m = SIDE_META[it.side];
           return (
-            <div key={it.route_id + it.side}
+            <div key={keyOf(it)}
                  className="absolute -translate-x-1/2 -translate-y-1/2"
                  style={{ left: `${it.center_pct[0]}%`, top: `${it.center_pct[1]}%`, zIndex: isActive ? 30 : 20 }}>
               <div
@@ -144,13 +190,14 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
                   setActive(i);
                   dragIdx.current = i;
                 }}
-                title={`${shortName(it.other)} — sudrab joyini o'zgartiring`}
+                title={`${m.title}: ${shortName(it.other)} — sudrab joyini o'zgartiring`}
                 className={['mx-auto cursor-grab rounded-full border-2 border-white shadow',
-                            isActive ? 'h-5 w-5 ring-2 ring-blue-400' : 'h-3.5 w-3.5'].join(' ')}
-                style={{ background: color }}
+                            isActive ? 'h-5 w-5 ring-2 ring-blue-300' : 'h-3.5 w-3.5'].join(' ')}
+                style={{ background: m.color }}
               />
-              <div className="pointer-events-none mt-0.5 max-w-[130px] truncate rounded bg-black/65 px-1 text-center text-[10px] leading-tight text-white">
-                {savedTick === it.route_id ? '✓ saqlandi' : shortName(it.other)}
+              <div className="pointer-events-none mt-0.5 max-w-[130px] truncate rounded px-1 text-center text-[10px] leading-tight text-white"
+                   style={{ background: `${m.color}cc` }}>
+                {savedTick === keyOf(it) ? '✓ saqlandi' : `${m.arrow} ${shortName(it.other)}`}
               </div>
             </div>
           );
@@ -158,45 +205,46 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
       </div>
 
       {/* panel */}
-      <div className="space-y-2 text-sm">
-        <div className="flex items-baseline justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            O'tishlar ({items.length})
-          </span>
-          {error && <span className="max-w-[220px] truncate text-[11px] text-red-600" title={error}>{error}</span>}
-        </div>
+      <div className="space-y-3 text-sm">
+        {error && <div className="truncate text-[11px] text-red-600" title={error}>{error}</div>}
         <p className="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700">
-          Ro'yxatdan bg'ni tanlang, keyin kadr ustiga <b>bosing</b> yoki nuqtani <b>sudrang</b> —
-          o'sha yer o'tish nuqtasi bo'ladi (kamera/personaj o'sha tomonga boradi). Har o'zgarish darhol saqlanadi.
+          Ro'yxatdan tanlang, keyin kadr ustiga <b>bosing</b> yoki nuqtani <b>sudrang</b>.
+          Har o'zgarish darhol saqlanadi.
         </p>
-        {items.map((it, i) => {
-          const isActive = active === i;
-          return (
-            <button key={it.route_id + it.side} type="button" onClick={() => setActive(i)}
-                    className={['flex w-full items-center gap-2 rounded border p-2 text-left',
-                                isActive ? 'border-blue-400 bg-blue-50/40' : 'border-gray-200 hover:bg-gray-50'].join(' ')}>
-              <div className="h-[45px] w-20 shrink-0 overflow-hidden rounded bg-gray-200">
-                {it.other_url && (
-                  <video src={`${it.other_url}#t=0.04`} muted playsInline preload="metadata"
-                         className="h-full w-full object-cover" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[12px] font-medium text-gray-800">→ {shortName(it.other)}</div>
-                <div className="text-[10px] text-gray-500">
-                  {it.far ? '🌫 uzoq' : '🔗 yaqin'} · nuqta: [{it.center_pct[0]}, {it.center_pct[1]}]
-                  {savedTick === it.route_id && <span className="ml-1 text-green-600">✓</span>}
-                </div>
-              </div>
-              {isActive && <span className="shrink-0 rounded bg-blue-600 px-1.5 py-0.5 text-[10px] text-white">belgilanmoqda</span>}
-            </button>
-          );
-        })}
-        {items.length === 0 && (
-          <p className="rounded border border-dashed border-gray-300 p-3 text-xs text-gray-400">
-            Bu fondan chiqadigan o'tishlar yo'q — avval relation editorda strelka torting.
-          </p>
-        )}
+
+        <div>
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-full" style={{ background: SIDE_META.exit.color }} />
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+              O'tish — bu yerdan chiqib ketish ({exits.length})
+            </span>
+          </div>
+          <div className="space-y-2">
+            {exits.map(renderItem)}
+            {exits.length === 0 && (
+              <p className="rounded border border-dashed border-gray-300 p-2 text-xs text-gray-400">
+                Bu fondan chiqadigan o'tish yo'q.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-full" style={{ background: SIDE_META.entry.color }} />
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+              Kelish — bu yerga kirib kelish ({entries.length})
+            </span>
+          </div>
+          <div className="space-y-2">
+            {entries.map(renderItem)}
+            {entries.length === 0 && (
+              <p className="rounded border border-dashed border-gray-300 p-2 text-xs text-gray-400">
+                Bu fonga kirib keladigan o'tish yo'q.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

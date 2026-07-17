@@ -261,9 +261,11 @@ def node_transitions(slug: str) -> dict[str, Any]:
         for r in doc.get("routes") or []:
             if not isinstance(r, dict):
                 continue
+            # exit = departure point (leaving this bg toward `other`);
+            # entry = arrival point (characters come IN from `other`)
             if r.get("from") == slug:
                 side, other = "exit", r.get("to")
-            elif r.get("to") == slug and r.get("bidirectional", False):
+            elif r.get("to") == slug:
                 side, other = "entry", r.get("from")
             else:
                 continue
