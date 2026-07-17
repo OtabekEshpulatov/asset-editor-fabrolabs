@@ -152,6 +152,21 @@ export default function RelationWorldSection({
     if (a === focus || b === focus) return { opacity: 1, width: 3.5, showIcon: true };
     return { opacity: 0.04, width: 2, showIcon: false };
   };
+  // Focus+context for the CARDS too: the focused bg and its direct neighbors
+  // stay full-strength, everything else dims (but never disappears).
+  const focusNeighbors = useMemo(() => {
+    if (!focus) return null;
+    const s = new Set<string>([focus]);
+    for (const r of routes) {
+      if (r.from === focus) s.add(r.to);
+      if (r.to === focus) s.add(r.from);
+    }
+    return s;
+  }, [focus, routes]);
+  const cardDim = (slug: string) =>
+    focusNeighbors && !focusNeighbors.has(slug)
+      ? { opacity: 0.35, filter: 'saturate(0.4)' }
+      : undefined;
   const sel = nodes.find((x) => x.slug === selected) ?? null;
 
   const prefixes = useMemo(() => {
@@ -307,7 +322,15 @@ export default function RelationWorldSection({
                         <span className="text-[11px] text-gray-400">{L.members.length} bg</span>
                       </div>
                       <div className="overflow-x-auto">
-                        <div className="relative" style={{ width: L.fullWidth, height: L.fullHeight }}>
+                        <div
+                          className="relative"
+                          style={{
+                            width: L.fullWidth,
+                            height: L.fullHeight,
+                            backgroundImage: 'radial-gradient(circle, #d8dbe0 1px, transparent 1px)',
+                            backgroundSize: '22px 22px',
+                          }}
+                        >
                           {L.ghosts.length > 0 && (
                             <>
                               <div
@@ -333,14 +356,16 @@ export default function RelationWorldSection({
                               const x2 = g.x - CARD_W / 2 - 8;
                               const midX = (x1 + x2) / 2;
                               return (
-                                <path key={`ghost-${ge.route.id}-${ge.from}`}
-                                      d={`M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${g.y}, ${x2} ${g.y}`}
-                                      fill="none" stroke="#f59e0b"
-                                      opacity={em.opacity}
-                                      strokeWidth={em.width}
-                                      strokeDasharray="8 5" markerEnd="url(#arrow-amber)">
-                                  <title>{`${ge.from} ⇄ ${ge.toGhost} (boshqa bo'limga o'tish)`}</title>
-                                </path>
+                                <g key={`ghost-${ge.route.id}-${ge.from}`} opacity={em.opacity}>
+                                  <path d={`M ${x1} ${a.y} C ${midX} ${a.y}, ${midX} ${g.y}, ${x2} ${g.y}`}
+                                        fill="none" stroke="#f59e0b"
+                                        strokeWidth={em.width}
+                                        strokeDasharray="8 5" markerEnd="url(#arrow-amber)">
+                                    <title>{`${ge.from} ⇄ ${ge.toGhost} (boshqa bo'limga o'tish)`}</title>
+                                  </path>
+                                  <circle cx={x1} cy={a.y} r="3.5" fill="#f59e0b" />
+                                  <circle cx={g.x - CARD_W / 2 - 2} cy={g.y} r="3.5" fill="#f59e0b" />
+                                </g>
                               );
                             })}
                             {L.edges.map((r) => {
@@ -366,6 +391,8 @@ export default function RelationWorldSection({
                                       {st.icon}
                                     </text>
                                   )}
+                                  <circle cx={x1} cy={a.y} r="3.5" fill={st.stroke} />
+                                  <circle cx={b.x - CARD_W / 2 - 2} cy={b.y} r="3.5" fill={st.stroke} />
                                 </g>
                               );
                             })}
@@ -382,10 +409,11 @@ export default function RelationWorldSection({
                                 onMouseEnter={() => setHovered(n.slug)}
                                 onMouseLeave={() => setHovered(null)}
                                 className={[
-                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm transition',
-                                  isSel ? 'z-10 border-blue-500 ring-2 ring-blue-300' : 'border-gray-200 hover:border-blue-300',
+                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border bg-white p-1 shadow-sm transition duration-150',
+                                  isSel ? 'z-10 border-blue-500 shadow-md ring-2 ring-blue-300'
+                                        : 'border-gray-200 hover:z-10 hover:border-blue-300 hover:shadow-md',
                                 ].join(' ')}
-                                style={{ left: p.x, top: p.y, width: CARD_W }}
+                                style={{ left: p.x, top: p.y, width: CARD_W, ...cardDim(n.slug) }}
                               >
                                 <div className="relative overflow-hidden rounded">
                                   <Thumb url={n.url} w={120} h={68} />
@@ -412,11 +440,11 @@ export default function RelationWorldSection({
                                 onMouseLeave={() => setHovered(null)}
                                 title={`${g.node.slug} — ${clusterTitle(clusterOf.get(g.node.slug)!)} bo'limiga o'tish`}
                                 className={[
-                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border-2 border-dashed p-1 shadow-sm transition',
-                                  isSel ? 'z-10 border-amber-500 bg-amber-100 ring-2 ring-amber-300'
-                                        : 'border-amber-400 bg-amber-50 hover:bg-amber-100',
+                                  'absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-lg border-2 border-dashed p-1 shadow-sm transition duration-150',
+                                  isSel ? 'z-10 border-amber-500 bg-amber-100 shadow-md ring-2 ring-amber-300'
+                                        : 'border-amber-400 bg-amber-50 hover:z-10 hover:bg-amber-100 hover:shadow-md',
                                 ].join(' ')}
-                                style={{ left: g.x, top: g.y, width: CARD_W }}
+                                style={{ left: g.x, top: g.y, width: CARD_W, ...cardDim(g.node.slug) }}
                               >
                                 <div className="relative overflow-hidden rounded">
                                   <Thumb url={g.node.url} w={120} h={68} />
