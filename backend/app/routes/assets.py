@@ -11,9 +11,10 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
-from app import asset_admin, backgrounds, connection, end_intros, intro_music, intros, live_bgs_v2, live_bgs_v3, sprites_v2, sprites_v3, videos
+from app import asset_admin, backgrounds, connection, end_intros, intro_music, intros, live_bgs_v2, live_bgs_v3, posters, sprites_v2, sprites_v3, videos
 from app.asset_urls import _spritesheet_url, resolve_asset_url
 from app.livebg import service as livebg_service
 from app.catalog import catalog, overrides
@@ -320,6 +321,21 @@ class MoversUpdate(BaseModel):
     added: list[AddedMoverIn] = []  # creatures to append
 
 
+@router.get("/videos/{slug}/poster")
+async def video_poster(slug: str) -> Response:
+    """First frame of the mp4 as a cached JPEG — the still views (zones,
+    transitions, relation map) use this instead of streaming the video."""
+    try:
+        data = await asyncio.to_thread(posters.poster_jpeg, slug)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no video {slug!r}")
+    except Exception as exc:  # noqa: BLE001 — surface ffmpeg/storage failures
+        log.exception("poster failed for %s", slug)
+        raise HTTPException(status_code=500, detail=f"poster failed: {exc}")
+    return Response(content=data, media_type="image/jpeg",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
 @router.get("/videos/{slug}/movers/palette")
 async def get_video_object_palette(slug: str) -> list[dict]:
     """Creatures that can be dropped into a scene (the union shipped across all bundles)."""
@@ -343,7 +359,9 @@ async def save_video_movers(slug: str, body: MoversUpdate) -> dict:
     edits = [e.model_dump(exclude_unset=True) for e in body.movers]
     added = [a.model_dump(exclude_unset=True) for a in body.added]
     try:
-        return await livebg_service.save_movers(slug, edits, removed=body.removed, added=added)
+        result = await livebg_service.save_movers(slug, edits, removed=body.removed, added=added)
+        await asyncio.to_thread(posters.invalidate, slug)  # mp4 changed — first frame may differ
+        return result
     except KeyError:
         raise HTTPException(status_code=404, detail=f"no video {slug!r}")
     except livebg_service.NotEditable:

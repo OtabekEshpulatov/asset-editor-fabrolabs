@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiV4, type BgTransition } from '../api';
-import QueuedThumb from './QueuedThumb';
+import QueuedThumb, { posterUrl } from './QueuedThumb';
 
 /**
  * "O'tishlar" tab of the zone editor: mark WHERE on this background each
@@ -134,7 +134,7 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
                           isActive ? 'bg-blue-50/40' : 'hover:bg-gray-50'].join(' ')}
               style={{ borderColor: isActive ? m.color : '#e5e7eb' }}>
         <div className="h-[45px] w-20 shrink-0 overflow-hidden rounded bg-gray-200">
-          <QueuedThumb url={it.other_url} className="h-full w-full" playOnHover={false} />
+          <QueuedThumb slug={it.other} url={it.other_url} className="h-full w-full" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px] font-medium text-gray-800">
@@ -171,8 +171,8 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
         style={{ aspectRatio: '16 / 9', touchAction: 'none', cursor: active != null ? 'crosshair' : 'default' }}
       >
         {videoUrl && (
-          <video src={videoUrl} autoPlay loop muted playsInline
-                 className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+          <img src={posterUrl(slug)} alt={slug} draggable={false}
+               className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
         )}
         {items.map((it, i) => {
           const isActive = active === i;

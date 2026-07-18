@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiV4, type RelationNode, type RelationRoute } from '../api';
 import RelationGraphEditor from './RelationGraphEditor';
-import QueuedThumb from './QueuedThumb';
+import QueuedThumb, { posterUrl } from './QueuedThumb';
 
 /**
  * Live BG v3 — relation map for one world, organized as THEMED DISTRICTS.
@@ -439,7 +439,7 @@ export default function RelationWorldSection({
                                                ...(shown ? (dim ? { opacity: 0.3, filter: 'saturate(0.35)' } : undefined)
                                                          : { opacity: 0, pointerEvents: 'none' }) }}>
                                 <div className="relative overflow-hidden rounded">
-                                  <Thumb url={mn.url} w={120} h={68} />
+                                  <Thumb slug={mn.slug} url={mn.url} w={120} h={68} />
                                   <span className="absolute left-0.5 top-0.5 rounded bg-black/55 px-1 text-[9px] text-white">
                                     {TOD_ICON[mn.tod] ?? ''}{mn.indoor ? ' ■' : ''}
                                   </span>
@@ -469,7 +469,7 @@ export default function RelationWorldSection({
                                                transition: 'left .3s ease, top .3s ease, background-color .2s ease' }}>
                                 <div className="rg-in flex w-full flex-col items-center gap-0.5">
                                   <div className="relative overflow-hidden rounded">
-                                    <Thumb url={nb.url} w={120} h={68} />
+                                    <Thumb slug={nb.slug} url={nb.url} w={120} h={68} />
                                     <span className="absolute right-0.5 top-0.5 rounded bg-amber-500/90 px-1 text-[9px] font-bold text-white">↗</span>
                                   </div>
                                   <span className="w-full truncate text-center text-[10px] font-medium leading-tight text-amber-900">
@@ -504,7 +504,7 @@ export default function RelationWorldSection({
                       </span>
                     </div>
                     <div className="relative overflow-hidden rounded" style={{ aspectRatio: '16 / 9' }}>
-                      {sel.url && <video src={sel.url} muted loop autoPlay playsInline className="h-full w-full object-cover" />}
+                      {sel.url && <img src={posterUrl(sel.slug)} alt={sel.slug} className="h-full w-full object-cover" />}
                       {relationsOf(sel.slug).map((e, i) => {
                         const st = edgeStyle(e.route);
                         return (

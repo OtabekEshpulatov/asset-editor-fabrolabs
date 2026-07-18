@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { apiV4, type BackgroundEditable, type BgZone } from '../api';
 import ObjectLayerEditor from '../components/ObjectLayerEditor';
 import TransitionPointEditor from '../components/TransitionPointEditor';
+import { posterUrl } from '../components/QueuedThumb';
 
 // Preset colours for the well-known zone names; everything else falls back to a
 // hex palette (hex so it's valid for <input type="color"> and SVG fill-opacity).
@@ -529,12 +530,12 @@ export default function BackgroundEditorPage() {
         >
           {data.url &&
             (data.is_video ? (
-              <video
-                src={data.url}
-                autoPlay
-                loop
-                muted
-                playsInline
+              // zones only need a still — the poster JPEG loads in ~100 KB
+              // instead of streaming the whole mp4 (video lives in Objects)
+              <img
+                src={posterUrl(data.slug)}
+                alt={data.slug}
+                draggable={false}
                 className="absolute inset-0 h-full w-full object-cover"
               />
             ) : (

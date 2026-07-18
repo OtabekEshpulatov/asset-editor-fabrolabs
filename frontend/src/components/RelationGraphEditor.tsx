@@ -106,11 +106,9 @@ function BgNode({ data }: NodeProps) {
           : 'border border-gray-300 bg-white',
       ].join(' ')}
       style={{ width: CARD }}
-      onMouseEnter={(e) => e.currentTarget.querySelector('video')?.play().catch(() => {})}
-      onMouseLeave={(e) => e.currentTarget.querySelector('video')?.pause()}
     >
       <div className="pointer-events-none relative overflow-hidden rounded">
-        <QueuedThumb url={d.url} w={THUMB_W} h={THUMB_H} playOnHover={false} />
+        <QueuedThumb slug={d.slug} url={d.url} w={THUMB_W} h={THUMB_H} />
         <span className="absolute left-1 top-1 rounded bg-black/55 px-1 text-[10px] text-white">
           {d.tod === 'night' ? '🌙' : d.tod === 'dusk' ? '🌆' : '☀️'}{d.indoor ? ' ■' : ''}
         </span>
