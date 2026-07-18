@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiV4, type BgTransition } from '../api';
+import QueuedThumb from './QueuedThumb';
 
 /**
  * "O'tishlar" tab of the zone editor: mark WHERE on this background each
@@ -133,10 +134,7 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
                           isActive ? 'bg-blue-50/40' : 'hover:bg-gray-50'].join(' ')}
               style={{ borderColor: isActive ? m.color : '#e5e7eb' }}>
         <div className="h-[45px] w-20 shrink-0 overflow-hidden rounded bg-gray-200">
-          {it.other_url && (
-            <video src={`${it.other_url}#t=0.04`} muted playsInline preload="metadata"
-                   className="h-full w-full object-cover" />
-          )}
+          <QueuedThumb url={it.other_url} className="h-full w-full" playOnHover={false} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px] font-medium text-gray-800">

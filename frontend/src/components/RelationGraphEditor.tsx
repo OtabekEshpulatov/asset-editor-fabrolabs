@@ -21,8 +21,9 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { apiV4, type RelationRoute, type RelationWorldGraph } from '../api';
+import QueuedThumb from './QueuedThumb';
 
-/** ?novideo=1 — debug/slow-link mode (kept local to avoid a circular import) */
+/** ?novideo=1 — debug/slow-link mode (QueuedThumb handles thumbs; iframe url forwards it) */
 const NO_VIDEO = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('novideo');
 
 /**
@@ -109,16 +110,7 @@ function BgNode({ data }: NodeProps) {
       onMouseLeave={(e) => e.currentTarget.querySelector('video')?.pause()}
     >
       <div className="pointer-events-none relative overflow-hidden rounded">
-        {NO_VIDEO && d.url ? (
-          <div className="grid place-items-center bg-emerald-100 text-emerald-700"
-               style={{ width: THUMB_W, height: THUMB_H }}>🎞</div>
-        ) : d.url ? (
-          <video src={`${d.url}#t=0.04`} muted loop playsInline preload="metadata"
-                 className="bg-gray-100 object-cover" style={{ width: THUMB_W, height: THUMB_H }} />
-        ) : (
-          <div className="grid place-items-center bg-gray-200 text-[10px] text-gray-500"
-               style={{ width: THUMB_W, height: THUMB_H }}>no mp4</div>
-        )}
+        <QueuedThumb url={d.url} w={THUMB_W} h={THUMB_H} playOnHover={false} />
         <span className="absolute left-1 top-1 rounded bg-black/55 px-1 text-[10px] text-white">
           {d.tod === 'night' ? '🌙' : d.tod === 'dusk' ? '🌆' : '☀️'}{d.indoor ? ' ■' : ''}
         </span>

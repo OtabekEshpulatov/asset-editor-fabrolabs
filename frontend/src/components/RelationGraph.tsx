@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiV4, type RelationNode, type RelationRoute } from '../api';
 import RelationGraphEditor from './RelationGraphEditor';
+import QueuedThumb from './QueuedThumb';
 
 /**
  * Live BG v3 — relation map for one world, organized as THEMED DISTRICTS.
@@ -117,35 +118,8 @@ function layoutCluster(nodes: RelationNode[], routes: RelationRoute[]) {
   };
 }
 
-/** ?novideo=1 — debug/slow-link mode: draw placeholders instead of loading mp4s */
-const NO_VIDEO = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('novideo');
-
-function Thumb({ url, w, h }: { url: string | null; w: number; h: number }) {
-  if (NO_VIDEO && url) {
-    return (
-      <div className="grid place-items-center bg-emerald-100 text-[9px] text-emerald-700" style={{ width: w, height: h }}>
-        🎞
-      </div>
-    );
-  }
-  if (!url) {
-    return (
-      <div className="grid place-items-center bg-gray-200 text-[9px] text-gray-500" style={{ width: w, height: h }}>
-        no mp4
-      </div>
-    );
-  }
-  return (
-    <video
-      src={`${url}#t=0.04`}
-      muted loop playsInline preload="metadata"
-      onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
-      onMouseLeave={(e) => e.currentTarget.pause()}
-      className="bg-gray-100 object-cover"
-      style={{ width: w, height: h }}
-    />
-  );
-}
+// thumbnails load one at a time through the global queue — see QueuedThumb
+const Thumb = QueuedThumb;
 
 const ARROW_DEFS = (
   <defs>
