@@ -216,10 +216,13 @@ def save_graph(world_id: str, routes: list[dict[str, Any]], ui: dict[str, Any]) 
     # editor positions live at DOC level ("editor_ui"), never on nodes — the
     # engine's NodeSpec is extra="forbid", so node-level extras would break a
     # future bucket→engine sync. Unknown top-level keys are ignored there.
+    # Keys: "<slug>" = the card in its home district; "<district>::<slug>" =
+    # the same bg as a GHOST card inside another district's editor.
     editor_ui = doc.get("editor_ui") if isinstance(doc.get("editor_ui"), dict) else {}
-    for slug, pos in ui.items():
+    for key, pos in ui.items():
+        slug = key.split("::", 1)[-1]
         if slug in known and isinstance(pos, dict) and "x" in pos and "y" in pos:
-            editor_ui[slug] = {"x": round(float(pos["x"]), 1), "y": round(float(pos["y"]), 1)}
+            editor_ui[key] = {"x": round(float(pos["x"]), 1), "y": round(float(pos["y"]), 1)}
     doc["editor_ui"] = editor_ui
     doc["nodes"] = [{k: v for k, v in n.items() if k != "ui"} for n in _node_dicts(doc)]
     doc["routes"] = norm_routes
@@ -364,4 +367,6 @@ def graph_view(world_id: str) -> dict[str, Any]:
         })
     clusters = doc.get("clusters") if isinstance(doc.get("clusters"), dict) else {}
     return {"world_id": world_id, "version": doc.get("version"),
-            "clusters": clusters, "nodes": nodes, "routes": routes}
+            "clusters": clusters, "nodes": nodes, "routes": routes,
+            # full position map — ghost-card entries use "<district>::<slug>" keys
+            "editor_ui": editor_ui}

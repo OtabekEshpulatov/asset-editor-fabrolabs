@@ -214,7 +214,9 @@ export default function RelationGraphEditor({
       out.push({
         id: slug,
         type: 'bg',
-        position: { x: maxX + 380, y: 60 + i * 210 },
+        // ghost positions persist too, under a district-scoped key — the same
+        // bg has its OWN position in its home district's editor
+        position: graph.editor_ui?.[`${district}::${slug}`] ?? { x: maxX + 380, y: 60 + i * 210 },
         data: {
           slug, url: n.url, tod: n.tod, indoor: n.indoor, ghost: true,
           districtLabel: clusterTitle(n.cluster || 'all'),
@@ -222,7 +224,7 @@ export default function RelationGraphEditor({
       });
     });
     return out;
-  }, [members, ghostSlugs, graph, fallbackPos, clusterTitle]);
+  }, [members, ghostSlugs, graph, fallbackPos, clusterTitle, district]);
 
   const initialEdges: Edge[] = useMemo(() => {
     const posOf = new Map(initialNodes.map((n) => [n.id, n.position]));
@@ -369,7 +371,8 @@ export default function RelationGraphEditor({
       const untouched = baseRoutes.current.filter((r) => !ownedIds.current.has(r.id));
       const ui: Record<string, { x: number; y: number }> = {};
       for (const n of nodes) {
-        if (!(n.data as BgNodeData).ghost) ui[n.id] = { x: n.position.x, y: n.position.y };
+        const key = (n.data as BgNodeData).ghost ? `${district}::${n.id}` : n.id;
+        ui[key] = { x: n.position.x, y: n.position.y };
       }
       const saved = await apiV4.saveRelationGraph(world, { routes: [...untouched, ...edited], ui });
       baseRoutes.current = saved.routes; // re-sync so the next save merges against fresh state

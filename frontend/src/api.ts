@@ -54,6 +54,8 @@ export interface RelationWorldGraph {
   clusters?: Record<string, { title?: string; emoji?: string }>;
   nodes: RelationNode[];
   routes: RelationRoute[];
+  /** full editor position map; ghost cards use "<district>::<slug>" keys */
+  editor_ui?: Record<string, { x: number; y: number }>;
 }
 
 // --- asset types (subset of story-gen-exps api_v4 used by the editor) --------
