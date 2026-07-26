@@ -216,14 +216,17 @@ def save_graph(world_id: str, routes: list[dict[str, Any]], ui: dict[str, Any]) 
     # editor positions live at DOC level ("editor_ui"), never on nodes — the
     # engine's NodeSpec is extra="forbid", so node-level extras would break a
     # future bucket→engine sync. Unknown top-level keys are ignored there.
-    # Keys: "<slug>" = the card in its home district; "<district>::<slug>" =
-    # the same bg as a GHOST card inside another district's editor.
+    # One key per background ("<slug>"): the world canvas holds every bg on a
+    # single board, so a bg has exactly one position.
     editor_ui = doc.get("editor_ui") if isinstance(doc.get("editor_ui"), dict) else {}
     for key, pos in ui.items():
         slug = key.split("::", 1)[-1]
         if slug in known and isinstance(pos, dict) and "x" in pos and "y" in pos:
-            editor_ui[key] = {"x": round(float(pos["x"]), 1), "y": round(float(pos["y"]), 1)}
-    doc["editor_ui"] = editor_ui
+            editor_ui[slug] = {"x": round(float(pos["x"]), 1), "y": round(float(pos["y"]), 1)}
+    # "<district>::<slug>" ghost positions came from the old per-district
+    # editors, where the same bg was drawn once per district it bordered.
+    # Those cards no longer exist — drop the leftovers.
+    doc["editor_ui"] = {k: v for k, v in editor_ui.items() if "::" not in k}
     doc["nodes"] = [{k: v for k, v in n.items() if k != "ui"} for n in _node_dicts(doc)]
     doc["routes"] = norm_routes
 
