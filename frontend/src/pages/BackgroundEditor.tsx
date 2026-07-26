@@ -451,10 +451,10 @@ export default function BackgroundEditorPage() {
               </button>
               <button
                 onClick={() => setMode('transitions')}
-                title="bog'liq fonlarga o'tish nuqtalarini kadr ustida belgilash"
+                title="mark transition points to linked backgrounds on the frame"
                 className={mode === 'transitions' ? 'rounded bg-blue-600 px-3 py-1 text-white' : 'px-3 py-1 text-gray-600'}
               >
-                O'tishlar
+                Transitions
               </button>
             </div>
           )}

@@ -273,12 +273,12 @@ export default function ObjectLayerEditor({ slug, videoUrl, onDirty, onSaved }: 
     return (
       <div className="space-y-3">
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
-          <p className="font-medium">Bu jonli fon hali obyekt-tahrirlash uchun tayyor emas.</p>
+          <p className="font-medium">This live background isn’t ready for object editing yet.</p>
           <p className="mt-1 text-amber-700">
-            Manba to‘plami (spec + plate + cutout) bucketda yo‘q. Pozitsion zonalarni tahrirlash uchun{' '}
-            <b>Zones</b> rejimiga o‘ting, yoki story-gen-exps’dan{' '}
+            The source bundle (spec + plate + cutout) isn’t in the bucket. To edit position zones, switch to{' '}
+            <b>Zones</b> mode, or run{' '}
             <code className="rounded bg-amber-100 px-1">v5_publish_livebg_categorized --bundle-only</code>{' '}
-            bilan bundle’ni publish qiling.
+            in story-gen-exps to publish the bundle.
           </p>
         </div>
         {videoUrl && (

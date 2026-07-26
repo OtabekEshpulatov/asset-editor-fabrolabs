@@ -3,11 +3,11 @@ import { apiV4, type BgTransition } from '../api';
 import QueuedThumb, { posterUrl } from './QueuedThumb';
 
 /**
- * "O'tishlar" tab of the zone editor: mark WHERE on this background each
+ * "Transitions" tab of the zone editor: mark WHERE on this background each
  * transition happens — split into two flavors with distinct colors:
- * - O'TISH (blue, side=exit): departure — the character/camera LEAVES this
+ * - EXIT (blue, side=exit): departure — the character/camera LEAVES this
  *   bg here, heading to the related bg.
- * - KELISH (green, side=entry): arrival — characters coming FROM the
+ * - ENTRY (green, side=entry): arrival — characters coming FROM the
  *   related bg appear here.
  *
  * Pick an item, then click the frame (or drag its dot). Every change saves
@@ -17,8 +17,8 @@ import QueuedThumb, { posterUrl } from './QueuedThumb';
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n * 10) / 10));
 
 const SIDE_META = {
-  exit: { color: '#2563eb', chip: "O'TISH", arrow: '→', title: "O'tish (bu yerdan chiqib ketish)" },
-  entry: { color: '#16a34a', chip: 'KELISH', arrow: '←', title: 'Kelish (bu yerga kirib kelish)' },
+  exit: { color: '#2563eb', chip: 'EXIT', arrow: '→', title: 'Exit (leaving from here)' },
+  entry: { color: '#16a34a', chip: 'ENTRY', arrow: '←', title: 'Entry (arriving here)' },
 } as const;
 
 function shortName(slug: string): string {
@@ -114,12 +114,12 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items.length, worldId]);
 
-  if (loading) return <div className="py-8 text-sm text-gray-500">O'tishlar yuklanmoqda…</div>;
+  if (loading) return <div className="py-8 text-sm text-gray-500">Loading transitions…</div>;
   if (notInGraph) {
     return (
       <div className="rounded border border-dashed border-gray-300 p-6 text-sm text-gray-500">
-        Bu fon hech qaysi relation grafiga kirmagan — o'tish nuqtalari faqat "Live BG v3 (relation)"
-        bo'limidagi fonlarda belgilanadi.
+        This background is not in any relation graph — transition points are only marked on
+        backgrounds in the "Live BG v3 (relation)" section.
       </div>
     );
   }
@@ -141,13 +141,13 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
             <span style={{ color: m.color }}>{m.arrow}</span> {shortName(it.other)}
           </div>
           <div className="text-[10px] text-gray-500">
-            {it.far ? '🌫 uzoq' : '🔗 yaqin'} · nuqta: [{it.center_pct[0]}, {it.center_pct[1]}]
+            {it.far ? '🌫 far' : '🔗 near'} · point: [{it.center_pct[0]}, {it.center_pct[1]}]
             {savedTick === keyOf(it) && <span className="ml-1 text-green-600">✓</span>}
           </div>
         </div>
         {isActive && (
           <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-white" style={{ background: m.color }}>
-            belgilanmoqda
+            marking
           </span>
         )}
       </button>
@@ -188,14 +188,14 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
                   setActive(i);
                   dragIdx.current = i;
                 }}
-                title={`${m.title}: ${shortName(it.other)} — sudrab joyini o'zgartiring`}
+                title={`${m.title}: ${shortName(it.other)} — drag to move it`}
                 className={['mx-auto cursor-grab rounded-full border-2 border-white shadow',
                             isActive ? 'h-5 w-5 ring-2 ring-blue-300' : 'h-3.5 w-3.5'].join(' ')}
                 style={{ background: m.color }}
               />
               <div className="pointer-events-none mt-0.5 max-w-[130px] truncate rounded px-1 text-center text-[10px] leading-tight text-white"
                    style={{ background: `${m.color}cc` }}>
-                {savedTick === keyOf(it) ? '✓ saqlandi' : `${m.arrow} ${shortName(it.other)}`}
+                {savedTick === keyOf(it) ? '✓ saved' : `${m.arrow} ${shortName(it.other)}`}
               </div>
             </div>
           );
@@ -206,22 +206,22 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
       <div className="space-y-3 text-sm">
         {error && <div className="truncate text-[11px] text-red-600" title={error}>{error}</div>}
         <p className="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700">
-          Ro'yxatdan tanlang, keyin kadr ustiga <b>bosing</b> yoki nuqtani <b>sudrang</b>.
-          Har o'zgarish darhol saqlanadi.
+          Pick one from the list, then <b>click</b> on the frame or <b>drag</b> the point.
+          Every change saves instantly.
         </p>
 
         <div>
           <div className="mb-1.5 flex items-center gap-1.5">
             <span className="h-3 w-3 rounded-full" style={{ background: SIDE_META.exit.color }} />
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-              O'tish — bu yerdan chiqib ketish ({exits.length})
+              Exit — leaving from here ({exits.length})
             </span>
           </div>
           <div className="space-y-2">
             {exits.map(renderItem)}
             {exits.length === 0 && (
               <p className="rounded border border-dashed border-gray-300 p-2 text-xs text-gray-400">
-                Bu fondan chiqadigan o'tish yo'q.
+                No transitions leaving this background.
               </p>
             )}
           </div>
@@ -231,14 +231,14 @@ export default function TransitionPointEditor({ slug, videoUrl }: { slug: string
           <div className="mb-1.5 flex items-center gap-1.5">
             <span className="h-3 w-3 rounded-full" style={{ background: SIDE_META.entry.color }} />
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-              Kelish — bu yerga kirib kelish ({entries.length})
+              Entry — arriving here ({entries.length})
             </span>
           </div>
           <div className="space-y-2">
             {entries.map(renderItem)}
             {entries.length === 0 && (
               <p className="rounded border border-dashed border-gray-300 p-2 text-xs text-gray-400">
-                Bu fonga kirib keladigan o'tish yo'q.
+                No transitions arriving at this background.
               </p>
             )}
           </div>
