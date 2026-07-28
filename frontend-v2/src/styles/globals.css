@@ -1,0 +1,182 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens. Dark is the DEFAULT (`:root`); light is an opt-in override
+ * (`:root.light`) set by the theme toggle. That order is deliberate — this is
+ * an asset tool, and neutral dark surfaces keep the artwork the only saturated
+ * thing on screen (the convention in Figma / Blender / Unity / Lightroom).
+ *
+ * Names follow the shadcn contract (background/foreground/card/primary/...) so
+ * the ui primitives work unmodified, plus a few extras this app needs.
+ * Values are raw HSL channels so Tailwind can apply alpha: hsl(var(--x) / 0.5).
+ */
+@layer base {
+  :root {
+    --background: 220 14% 8%;
+    --foreground: 210 16% 93%;
+
+    --card: 220 13% 11%;
+    --card-foreground: 210 16% 93%;
+
+    --popover: 220 13% 13%;
+    --popover-foreground: 210 16% 93%;
+
+    /* One raised step above --card, for nested panels and inputs. */
+    --elevated: 220 12% 15%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 12% 18%;
+    --secondary-foreground: 210 16% 93%;
+
+    --muted: 220 12% 16%;
+    --muted-foreground: 217 10% 58%;
+
+    --accent: 220 12% 20%;
+    --accent-foreground: 210 16% 96%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 69% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 52%;
+    --warning-foreground: 40 90% 8%;
+
+    --border: 220 10% 21%;
+    --input: 220 10% 24%;
+    --ring: 217 91% 60%;
+
+    --radius: 0.5rem;
+
+    /* Checkerboard behind transparent sprites — tuned per theme so cutouts
+       read clearly without fighting the artwork. */
+    --checker-a: 220 10% 17%;
+    --checker-b: 220 10% 13%;
+  }
+
+  :root.light {
+    --background: 220 20% 97%;
+    --foreground: 220 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 12%;
+
+    --elevated: 220 20% 99%;
+
+    --primary: 217 91% 52%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 16% 93%;
+    --secondary-foreground: 220 25% 16%;
+
+    --muted: 220 16% 94%;
+    --muted-foreground: 220 9% 44%;
+
+    --accent: 220 16% 91%;
+    --accent-foreground: 220 25% 12%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 69% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 13% 87%;
+    --input: 220 13% 84%;
+    --ring: 217 91% 52%;
+
+    --checker-a: 220 12% 88%;
+    --checker-b: 0 0% 100%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+  }
+
+  /* Dense tool UI: a slim scrollbar that doesn't steal layout width. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.6);
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* Transparent-PNG backing. Sprites and objects are cutouts; without this a
+     dark sprite on a dark surface is invisible. */
+  .checkerboard {
+    background-image:
+      linear-gradient(45deg, hsl(var(--checker-a)) 25%, transparent 25%),
+      linear-gradient(-45deg, hsl(var(--checker-a)) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, hsl(var(--checker-a)) 75%),
+      linear-gradient(-45deg, transparent 75%, hsl(var(--checker-a)) 75%);
+    background-size: 16px 16px;
+    background-position:
+      0 0,
+      0 8px,
+      8px -8px,
+      -8px 0px;
+    background-color: hsl(var(--checker-b));
+  }
+
+  /* Shared focus treatment, so every interactive control agrees. */
+  .focus-ring {
+    @apply outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  }
+}
+
+/* Hover-to-animate for sprite grid cards. The strip is N square frames laid out
+   side by side; stepping background-position across it is pure compositor work,
+   so a grid of animating cards costs no decode and no JS frame loop. */
+@keyframes sprite-strip {
+  from {
+    background-position-x: 0%;
+  }
+  to {
+    background-position-x: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

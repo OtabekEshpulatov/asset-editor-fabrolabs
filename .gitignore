@@ -6,11 +6,15 @@ backend/data/
 .pytest_cache/
 .ruff_cache/
 
-# node
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
+# node — match any frontend, not just the original one
+node_modules/
+dist/
+.vite/
 
 # local
 .env
 .DS_Store
+
+# Claude Code: launch config + the backend dev script are shared; the
+# permission file is per-machine.
+.claude/settings.local.json
