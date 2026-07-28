@@ -30,6 +30,17 @@
         "dev"
       ],
       "port": 5174
+    },
+    {
+      "name": "asset-editor-v2-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend-v2",
+        "run",
+        "dev:api"
+      ],
+      "port": 5175
     }
   ]
 }

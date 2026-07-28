@@ -1,25 +1,29 @@
 /**
  * Adapter selection.
  *
- * Phase 1 ships `mock` only. Phase 3 adds `./http` (real /api/v5) and this file
- * is the ONLY place that changes — every screen already imports `data` from
- * here, so swapping the source is a config flip, not a rewrite.
+ * `mock`  — generated fixtures, no backend, no storage, no Tailscale.
+ * `api`   — the real /api/v4 backend, i.e. your actual library.
+ *
+ * Set VITE_DATA_SOURCE to choose. Every screen imports `data` from here and
+ * never calls fetch directly, so swapping the source is a config flip rather
+ * than a rewrite — that is the whole reason this indirection exists.
  */
 
 import type { DataAdapter } from './types';
 import { mockAdapter } from './mock/adapter';
+import { httpAdapter } from './http/adapter';
 
-const source = (import.meta.env.VITE_DATA_SOURCE as string | undefined) ?? 'mock';
+export type DataSource = 'mock' | 'api';
 
-if (source !== 'mock') {
-  // Fail loudly rather than silently serving fixtures where real data is meant.
-  throw new Error(
-    `VITE_DATA_SOURCE="${source}" is not available yet. The http adapter lands in phase 3; ` +
-      'run with VITE_DATA_SOURCE=mock (the default) until then.',
-  );
+const configured = (import.meta.env.VITE_DATA_SOURCE as string | undefined) ?? 'mock';
+
+if (configured !== 'mock' && configured !== 'api') {
+  throw new Error(`VITE_DATA_SOURCE must be "mock" or "api" (got "${configured}")`);
 }
 
-export const data: DataAdapter = mockAdapter;
+export const dataSource: DataSource = configured;
+
+export const data: DataAdapter = dataSource === 'api' ? httpAdapter : mockAdapter;
 
 /** True when the UI is running on fixtures — surfaced as a banner in the shell. */
 export const isMockData = data.name === 'mock';

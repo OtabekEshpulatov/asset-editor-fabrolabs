@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "fixtures": "../backend/.venv/bin/python scripts/gen_fixtures.py",
-    "check:lang": "scripts/check-english.sh"
+    "check:lang": "scripts/check-english.sh",
+    "dev:api": "VITE_DATA_SOURCE=api vite --host 0.0.0.0 --port 5175 --strictPort",
+    "build:api": "VITE_DATA_SOURCE=api vite build"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.1.2",
