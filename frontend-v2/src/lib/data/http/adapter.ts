@@ -83,6 +83,8 @@ interface V4Action {
  * thumbnail service removes, and it is visible today. Left explicit rather than
  * hidden behind a shrug.
  */
+const SHEET_KINDS = new Set<AssetKind>(['character', 'animation', 'animation_v3']);
+
 function toItem(kind: AssetKind, category: string, raw: V4Item): AssetItem {
   const actions = raw.animation_urls ? Object.keys(raw.animation_urls).sort() : undefined;
   return {
@@ -91,6 +93,7 @@ function toItem(kind: AssetKind, category: string, raw: V4Item): AssetItem {
     category,
     thumb: raw.url,
     strip: null,
+    thumbIsSheet: SHEET_KINDS.has(kind),
     media: raw.url,
     enabled: raw.enabled ?? true,
     rev: raw.rev ?? 0,
@@ -156,8 +159,18 @@ const decodeCursor = (cursor?: string | null) => {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 };
 
+/**
+ * For a live scene v4 returns the mp4 itself as `url`, but every still view —
+ * zones, transitions, the object layer — draws that backdrop into an <img>,
+ * where an mp4 renders as nothing. The backend already extracts and caches a
+ * first-frame JPEG for exactly this; point stills at it.
+ *
+ * (The current editor does the same thing, for the same reason: streaming the
+ * whole multi-megabyte mp4 just to show frame 1 made those pages take 20+s.)
+ */
 function toBackgroundDoc(raw: BackgroundDoc): BackgroundDoc {
-  return { ...raw, zones: (raw.zones ?? []).map((z) => ({ ...z })) };
+  const url = raw.is_video ? `${V4}/videos/${encodeURIComponent(raw.slug)}/poster` : raw.url;
+  return { ...raw, url, zones: (raw.zones ?? []).map((z) => ({ ...z })) };
 }
 
 export const httpAdapter: DataAdapter = {

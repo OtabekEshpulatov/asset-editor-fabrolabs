@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { useInView } from '@/lib/hooks';
+import { DEFAULT_FPS, frameOrigin, gridOfImage, loadSheet } from '@/lib/sprite-sheet';
 
 /**
  * Grid thumbnail for a sprite. THIS is the load-time fix.
@@ -138,6 +139,107 @@ export function ImageThumb({
       ) : inView ? (
         <span className="text-[9px] text-muted-foreground">no preview</span>
       ) : null}
+    </div>
+  );
+}
+
+
+/**
+ * Grid thumbnail cropped from a FULL spritesheet.
+ *
+ * Used when the backend has no derived thumbnails (v4 today): a sprite's only
+ * image is its sheet, and putting that in an <img> renders the whole grid of
+ * frames shrunk into the card — a mosaic, not a character. Here one frame is
+ * drawn to canvas, which is what the old editor did and what makes the grid
+ * legible at all.
+ *
+ * The decode goes through the shared byte-budgeted cache in lib/sprite-sheet,
+ * so a long list cannot pin gigabytes of RGBA. It is still far more expensive
+ * than a 5 KB thumbnail — that cost is what phase 2 removes.
+ */
+export function SheetThumb({
+  url,
+  alt,
+  size = 116,
+  fps = DEFAULT_FPS,
+  className,
+}: {
+  url: string | null | undefined;
+  alt: string;
+  size?: number;
+  fps?: number;
+  className?: string;
+}) {
+  const { ref, inView } = useInView<HTMLDivElement>();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [sheet, setSheet] = useState<HTMLImageElement | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  useEffect(() => {
+    if (!inView || !url) return;
+    let cancelled = false;
+    loadSheet(url)
+      .then((img) => !cancelled && setSheet(img))
+      .catch(() => !cancelled && setFailed(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [inView, url]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx || !sheet) return;
+    const grid = gridOfImage(sheet);
+
+    const draw = (f: number) => {
+      const { sx, sy } = frameOrigin(((f % grid.total) + grid.total) % grid.total, grid);
+      ctx.clearRect(0, 0, size, size);
+      ctx.drawImage(sheet, sx, sy, grid.frameSize, grid.frameSize, 0, 0, size, size);
+    };
+
+    // Static mid-frame until hovered — animating every card at once would burn
+    // CPU for a screenful of sprites with nothing gained.
+    if (!hovered) {
+      draw(Math.floor(grid.total / 2));
+      return;
+    }
+    let raf = 0;
+    let frame = 0;
+    let last = 0;
+    let stopped = false;
+    const tick = (ts: number) => {
+      if (stopped) return;
+      if (ts - last > 1000 / fps) {
+        last = ts;
+        draw(frame);
+        frame = (frame + 1) % grid.total;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [sheet, hovered, size, fps]);
+
+  return (
+    <div
+      ref={ref}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      role="img"
+      aria-label={alt}
+      className={cn('checkerboard grid place-items-center overflow-hidden rounded', className)}
+      style={{ width: size, height: size }}
+    >
+      {failed ? (
+        <span className="px-1 text-center text-[9px] text-muted-foreground">no preview</span>
+      ) : (
+        <canvas ref={canvasRef} width={size} height={size} className="size-full" />
+      )}
     </div>
   );
 }

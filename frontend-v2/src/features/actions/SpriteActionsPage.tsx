@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 import { data, type ActionDetail } from '@/lib/data';
 import { prettyAction } from '@/lib/kinds';
+import { withRev } from '@/lib/sprite-sheet';
 import { assetTouchingKeys, qk } from '@/app/queryKeys';
 import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
@@ -21,7 +22,7 @@ import {
 } from '@/components/ui/controls';
 import { Badge, EmptyState, ErrorState, Skeleton } from '@/components/ui/feedback';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { SpriteThumb } from '@/components/media/SpriteThumb';
+import { SheetThumb, SpriteThumb } from '@/components/media/SpriteThumb';
 import { FrameEditor } from './FrameEditor';
 
 const FPS_OPTIONS = [6, 8, 10, 12, 16, 20, 24, 30];
@@ -177,7 +178,14 @@ function ActionRow({
         !action.enabled && 'opacity-60',
       )}
     >
-      <SpriteThumb thumb={thumb} strip={strip} alt={action.name} size={64} />
+      {/* Prefer the action's own sheet: a row for "fly left" should show flying,
+          not whatever the character's default image happens to be. Falls back to
+          the derived thumbnail when the backend provides one. */}
+      {action.spritesheet ? (
+        <SheetThumb url={withRev(action.spritesheet, action.rev)} alt={action.name} size={64} fps={action.fps} />
+      ) : (
+        <SpriteThumb thumb={thumb} strip={strip} alt={action.name} size={64} />
+      )}
 
       <div className="min-w-[140px] flex-1">
         {renaming ? (

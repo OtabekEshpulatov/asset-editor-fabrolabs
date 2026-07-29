@@ -50,6 +50,15 @@ export interface AssetItem {
   /** horizontal frame strip (~16 KB) for hover-to-animate; sprites only */
   strip?: string | null;
   /**
+   * True when `thumb` is a full spritesheet rather than a derived thumbnail.
+   *
+   * v4 ships no thumbnails, so a sprite's only image IS its sheet. Rendering
+   * that in an <img> shows the whole grid of frames shrunk into the card — a
+   * mosaic, not a character. Cards must crop one frame to canvas instead.
+   * Phase 2's thumbnail service makes this false everywhere.
+   */
+  thumbIsSheet?: boolean;
+  /**
    * The actual asset: an mp4 for video kinds, an mp3 for music, the
    * full-resolution image for stills. Grid cards never load this — it is what
    * the inspector plays or shows full size, and what "Open original" points at.

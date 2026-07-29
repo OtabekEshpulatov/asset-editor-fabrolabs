@@ -5,7 +5,7 @@ import type { AssetItem } from '@/lib/data';
 import { KINDS } from '@/lib/kinds';
 import { withRev } from '@/lib/sprite-sheet';
 import { Checkbox } from '@/components/ui/controls';
-import { ImageThumb, SpriteThumb } from '@/components/media/SpriteThumb';
+import { ImageThumb, SheetThumb, SpriteThumb } from '@/components/media/SpriteThumb';
 
 export const CARD_W = 148;
 export const CARD_H = 186;
@@ -74,7 +74,10 @@ export const AssetCard = memo(function AssetCard({
         title={`${item.slug} — open details`}
         className="rounded focus-ring"
       >
-        {meta.shape === 'sprite' ? (
+        {meta.shape === 'sprite' && item.thumbIsSheet ? (
+          // No derived thumbnail available — crop a frame out of the sheet.
+          <SheetThumb url={thumb} alt={item.slug} size={CARD_W - 16} className="w-full" />
+        ) : meta.shape === 'sprite' ? (
           <SpriteThumb
             thumb={thumb}
             strip={item.strip}
