@@ -7,6 +7,11 @@ backend/data/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# The prototype is not part of the image: the Dockerfile builds frontend/.
+# Excluded so its ~14 MB of fixture media is not uploaded as build context on
+# every CI run. Remove this line when frontend-v2 becomes the shipped UI.
+frontend-v2/
 .git/
 .env
 **/.DS_Store
