@@ -8,7 +8,8 @@
 # Runs in the repo checkout dir (e.g. /opt/asset-editor).
 #
 # Env in: IMAGE_TAG, GHCR_PAT, GHCR_USER, MINIO_ENDPOINT_URL, MINIO_ACCESS_KEY,
-#         MINIO_SECRET_KEY, MINIO_BUCKET, ASSET_EDITOR_PORT
+#         MINIO_SECRET_KEY, MINIO_BUCKET, ASSET_EDITOR_PORT,
+#         ASSET_EDITOR_V2_PORT
 # =============================================================
 set -euo pipefail
 
@@ -28,6 +29,7 @@ cat > .env <<EOF
 # GitHub Environment "dev" (secrets/variables) and re-deploy.
 IMAGE_TAG=${IMAGE_TAG}
 ASSET_EDITOR_PORT=${ASSET_EDITOR_PORT:-7777}
+ASSET_EDITOR_V2_PORT=${ASSET_EDITOR_V2_PORT:-8888}
 MINIO_ENDPOINT_URL=${MINIO_ENDPOINT_URL:-}
 MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-}
 MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-}
@@ -44,7 +46,7 @@ echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_USER:-OtabekEshpulatov}" --
 $COMPOSE pull
 
 # 4. Recreate the service and reclaim old image layers.
-echo "[4/4] Starting asset-editor..."
+echo "[4/4] Starting asset-editor + asset-editor-v2..."
 $COMPOSE up -d
 docker image prune -f >/dev/null 2>&1 || true
 

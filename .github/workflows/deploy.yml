@@ -21,12 +21,25 @@ env:
 
 jobs:
   build:
-    name: Build & push image
+    # Two independent images from one checkout: the current editor and Asset
+    # Studio. They share every backend layer, so the second build is mostly
+    # cache hits — but they version and roll back separately.
+    name: Build & push ${{ matrix.name }}
     runs-on: ubuntu-latest
     environment: dev
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: editor
+            dockerfile: Dockerfile
+            suffix: ''
+          - name: asset-studio
+            dockerfile: Dockerfile.v2
+            suffix: '-v2'
     steps:
       - uses: actions/checkout@v4
 
@@ -44,13 +57,15 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ${{ env.IMAGE }}:dev
-            ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ${{ env.IMAGE }}${{ matrix.suffix }}:dev
+            ${{ env.IMAGE }}${{ matrix.suffix }}:${{ github.sha }}
+          # Scope the cache per image so the two matrix legs do not evict each
+          # other, while still sharing the identical backend layers.
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
   deploy:
     name: Deploy to VPS
@@ -70,14 +85,15 @@ jobs:
           MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
           MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
           MINIO_BUCKET: ${{ vars.MINIO_BUCKET }}
-          # Host port the editor is published on (defaults to 7777).
+          # Host ports the two editors are published on.
           ASSET_EDITOR_PORT: ${{ vars.ASSET_EDITOR_PORT }}
+          ASSET_EDITOR_V2_PORT: ${{ vars.ASSET_EDITOR_V2_PORT }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_TAG,GHCR_PAT,GHCR_USER,MINIO_ENDPOINT_URL,MINIO_ACCESS_KEY,MINIO_SECRET_KEY,MINIO_BUCKET,ASSET_EDITOR_PORT
+          envs: IMAGE_TAG,GHCR_PAT,GHCR_USER,MINIO_ENDPOINT_URL,MINIO_ACCESS_KEY,MINIO_SECRET_KEY,MINIO_BUCKET,ASSET_EDITOR_PORT,ASSET_EDITOR_V2_PORT
           script: |
             set -e
             # Sync the server checkout BEFORE running deploy.sh: a git reset

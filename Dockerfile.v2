@@ -1,0 +1,53 @@
+# Asset Studio — the rebuilt editor, as its own image.
+#
+# Deliberately a SEPARATE image from the current editor rather than one image
+# carrying both frontends: the two ship on their own cadence, roll back
+# independently, and can diverge later without one dragging the other. The
+# backend layers are byte-identical to Dockerfile's, so the registry and the
+# build cache dedupe them — the extra cost is the second frontend build, not a
+# second Python install.
+#
+# Same backend, same bucket, same API. Only the served SPA differs.
+
+# --- stage 1: build the rebuilt frontend ---
+FROM node:20-alpine AS frontend
+WORKDIR /fe
+COPY frontend-v2/package.json frontend-v2/package-lock.json* ./
+RUN npm install
+COPY frontend-v2/ ./
+# Talk to the real backend, not the offline fixtures. The fixture media under
+# public/mock is excluded from the build context (.dockerignore) — it exists
+# only for mock mode and would add ~14 MB to the image for nothing.
+ENV VITE_DATA_SOURCE=api
+RUN npm run build          # -> /fe/dist  (index.html + static/*)
+
+# --- stage 2: backend + bundled frontend ---
+FROM python:3.12-slim
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    ASSET_EDITOR_DATA_DIR=/data
+
+WORKDIR /srv
+
+# System deps for the livebg object editor's re-render: ffmpeg (video encode) and
+# libgomp1 (OpenMP runtime the bundled native librlottie links against).
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/app ./app
+# Served by uvicorn from config.WEB_DIR, which defaults to /srv/web.
+COPY --from=frontend /fe/dist ./web
+
+# Fail the build early if the native rlottie lib can't load (e.g. a missing .so).
+RUN python -c "from rlottie_python import LottieAnimation; from app.livebg import render; print('livebg deps OK')"
+
+RUN mkdir -p /data
+VOLUME ["/data"]
+
+EXPOSE 8000
+# 2 workers so concurrent mp4 streams (the live-bg gallery loads many at once) don't
+# serialize behind one event loop and cascade into 502s.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

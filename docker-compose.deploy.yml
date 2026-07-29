@@ -6,6 +6,7 @@
 # became its own repo. Same service shape: published on :7777, data persisted
 # in a named volume, storage auto-connected from MINIO_* env.
 services:
+  # The current editor.
   asset-editor:
     image: ghcr.io/otabekeshpulatov/asset-editor-fabrolabs:${IMAGE_TAG:-dev}
     container_name: fairytale-asset-editor
@@ -33,6 +34,36 @@ services:
           # workers) under the gallery's concurrent mp4 streams -> intermittent
           # 500/502 ("Failed to load assets"). 1.5G is comfortable on the 8G host.
           memory: 1536M
+
+  # Asset Studio — the rebuilt editor, its own image on its own port.
+  # Same backend, same bucket, and the SAME data volume: the override sidecar
+  # lives there, so an enable/rename done in one UI is visible in the other.
+  # (app.catalog.overrides already re-reads that sidecar when its mtime moves,
+  # which is how the two uvicorn workers stay coherent — two containers sharing
+  # the volume use the same mechanism.)
+  asset-editor-v2:
+    image: ghcr.io/otabekeshpulatov/asset-editor-fabrolabs-v2:${IMAGE_TAG:-dev}
+    container_name: fairytale-asset-editor-v2
+    restart: unless-stopped
+    environment:
+      ASSET_EDITOR_DATA_DIR: /data
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL:-}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-}
+      MINIO_BUCKET: ${MINIO_BUCKET:-fairytale-assets}
+    ports:
+      - "0.0.0.0:${ASSET_EDITOR_V2_PORT:-8888}:8000"
+    volumes:
+      - asset_editor_data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          # Lower than the primary: this is the review instance, not the one
+          # everyone streams live backgrounds from. Raise it if it starts
+          # getting OOM-killed under real use.
+          memory: 1024M
 
 volumes:
   asset_editor_data:

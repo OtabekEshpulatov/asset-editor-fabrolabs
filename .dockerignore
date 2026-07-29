@@ -8,10 +8,13 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 
-# The prototype is not part of the image: the Dockerfile builds frontend/.
-# Excluded so its ~14 MB of fixture media is not uploaded as build context on
-# every CI run. Remove this line when frontend-v2 becomes the shipped UI.
-frontend-v2/
+frontend-v2/node_modules/
+frontend-v2/dist/
+frontend-v2/.vite/
+# Fixture media for offline mock mode only. Dockerfile.v2 builds with
+# VITE_DATA_SOURCE=api, so shipping ~14 MB of fake assets into the image (and
+# uploading them as build context on every CI run) would be pure waste.
+frontend-v2/public/mock/
 .git/
 .env
 **/.DS_Store

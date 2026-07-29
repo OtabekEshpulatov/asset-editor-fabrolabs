@@ -8,10 +8,25 @@ import { fileURLToPath, URL } from 'node:url';
 // The /api + /storage proxies only matter once VITE_DATA_SOURCE=api (phase 3).
 // In the default mock mode the app makes no network calls at all, so the
 // prototype runs with the backend down and Tailscale off.
+// `api` builds must not carry the fixtures. lib/data imports both adapters
+// statically (so `data` stays a synchronous export), which would otherwise pull
+// ~688 KB of mock JSON into a bundle that talks to the real backend. Swapping
+// the mock adapter for a stub lets Rollup drop the whole fixture tree.
+const isApiBuild = process.env.VITE_DATA_SOURCE === 'api';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      ...(isApiBuild
+        ? {
+            './mock/adapter': fileURLToPath(
+              new URL('./src/lib/data/mock/adapter.stub.ts', import.meta.url),
+            ),
+          }
+        : {}),
+    },
   },
   build: { assetsDir: 'static' },
   server: {
