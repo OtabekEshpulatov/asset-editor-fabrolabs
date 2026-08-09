@@ -15,6 +15,10 @@ dist/
 .env
 .DS_Store
 
+# throwaway: bucket snapshots taken before a write test, scratch payloads.
+# Never real code.
+ignored/
+
 # Claude Code: launch config + the backend dev script are shared; the
 # permission file is per-machine.
 .claude/settings.local.json

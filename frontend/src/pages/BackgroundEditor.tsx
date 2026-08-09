@@ -35,6 +35,38 @@ const zoneColor = (z: BgZone) => z.color || defaultColor(z.name);
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n * 100) / 100));
 const TRACE_MIN_DIST = 1.5; // % — min spacing between freehand-sampled points
 
+// --- depth bands -------------------------------------------------------------
+// A zone with a depth is a band: one of the plate's floor strips, ordered
+// back-to-front. The backend is the gate (it answers 422); these checks only
+// exist so a bad name is visible while typing instead of after a save round-trip.
+// Keep them in step with backgrounds._band_fields.
+const BAND_NAME_RE = /^[a-z][a-z0-9_]{2,23}$/;
+const SCREEN_POSITIONS = ['left_edge', 'left_third', 'center', 'right_third', 'right_edge'];
+
+const bandNameProblem = (name: string): string | null => {
+  // The server strips the name before every rule (_build_zones), so checking the
+  // raw value here would redden a name it goes on to accept.
+  const n = name.trim();
+  if (SCREEN_POSITIONS.includes(n)) return `“${n}” is a screen position, not a place on the plate`;
+  if (!BAND_NAME_RE.test(n))
+    return '3–24 characters: lowercase letters, digits and _, starting with a letter';
+  return null;
+};
+
+// Which depths the plate is missing, so the panel can say so before a save does.
+// Depths must run 1..n with no gaps and no repeats.
+const bandDepthProblem = (zones: BgZone[]): string | null => {
+  const depths = zones.map((z) => z.depth).filter((d): d is number => typeof d === 'number');
+  if (!depths.length) return null;
+  const dupes = depths.filter((d, i) => depths.indexOf(d) !== i);
+  // Deliberately does not say how many or which — the 422 names them all.
+  if (dupes.length) return `more than one band is on depth ${dupes[0]}`;
+  const sorted = [...depths].sort((a, b) => a - b);
+  if (sorted.some((d, i) => d !== i + 1))
+    return `depths must run 1–${depths.length} with no gaps (now ${sorted.join(', ')})`;
+  return null;
+};
+
 const centroid = (pts: number[][]): [number, number] => {
   if (!pts.length) return [50, 50];
   const x = pts.reduce((a, p) => a + p[0], 0) / pts.length;
@@ -369,7 +401,10 @@ export default function BackgroundEditorPage() {
     try {
       const body = {
         description: data.description,
-        zones: data.zones,
+        // A scale means nothing without a depth, and the backend 422s on the
+        // pair. Strip it here rather than while typing: an empty depth box is
+        // usually mid-edit, not "this is no longer a band".
+        zones: data.zones.map((z) => (z.depth == null ? { ...z, scale: null } : z)),
       };
       const updated = isVideo
         ? await apiV4.saveVideo(data.slug, body)
@@ -705,6 +740,9 @@ export default function BackgroundEditorPage() {
             <div className="space-y-2">
               {data.zones.map((z, i) => {
                 const isSel = selected === i;
+                const isBand = typeof z.depth === 'number';
+                const nameProblem = isBand ? bandNameProblem(z.name) : null;
+                const needsDescription = isBand && !z.description.trim();
                 return (
                   <div
                     key={i}
@@ -728,7 +766,9 @@ export default function BackgroundEditorPage() {
                           updateZone(i, { name: e.target.value });
                         }}
                         placeholder="zone name"
-                        className="w-24 rounded border border-gray-300 px-1 py-0.5 font-mono text-xs"
+                        className={`w-24 rounded border px-1 py-0.5 font-mono text-xs ${
+                          nameProblem ? 'border-red-400 bg-red-50' : 'border-gray-300'
+                        }`}
                       />
                       <select
                         value={z.surface ?? 'none'}
@@ -760,15 +800,75 @@ export default function BackgroundEditorPage() {
                         ✕
                       </button>
                     </div>
+                    {/* Own line: the row above already fills the panel, so
+                        these cannot share it without pushing its buttons off. */}
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-[11px] text-gray-400">depth</span>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={z.depth ?? ''}
+                        onChange={(e) => {
+                          snapshotZone(z._uid, 'depth:' + z._uid);
+                          const v = e.target.value.trim();
+                          // Only the depth moves. A number input reports '' for
+                          // any half-typed value, so backspacing a digit before
+                          // retyping must not be read as "stop being a band" —
+                          // that used to take the scale with it, silently. The
+                          // orphaned scale is stripped when the payload is built.
+                          updateZone(i, v === '' ? { depth: null } : { depth: Number(v) });
+                        }}
+                        title="depth band: 1 is furthest back. Leave empty for an ordinary zone."
+                        aria-label={`depth of ${z.name}`}
+                        className="w-14 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                      />
+                      {(isBand || z.scale != null) && (
+                        <>
+                          <span className="text-[11px] text-gray-400">scale</span>
+                          <input
+                            type="number"
+                            min={0.01}
+                            step={0.05}
+                            value={z.scale ?? ''}
+                            onChange={(e) => {
+                              snapshotZone(z._uid, 'scale:' + z._uid);
+                              const v = e.target.value.trim();
+                              updateZone(i, v === '' ? { scale: null } : { scale: Number(v) });
+                            }}
+                            title="how big a character standing here is drawn, relative to normal. 1 = normal, empty = 1."
+                            aria-label={`render scale of ${z.name}`}
+                            className="w-16 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                          />
+                        </>
+                      )}
+                      {!isBand && (
+                        <span className="text-[11px] text-gray-400">
+                          — empty means an ordinary zone
+                        </span>
+                      )}
+                    </div>
                     <input
                       value={z.description}
                       onChange={(e) => {
                         snapshotZone(z._uid, 'desc:' + z._uid);
                         updateZone(i, { description: e.target.value });
                       }}
-                      placeholder="description (what the LLM places here)…"
-                      className="w-full rounded border border-gray-200 px-1 py-0.5 text-xs text-gray-600"
+                      placeholder={
+                        isBand
+                          ? 'which band is this, in prose — say how much room it has ("a narrow ledge, room for one or two")…'
+                          : 'description (what the LLM places here)…'
+                      }
+                      className={`w-full rounded border px-1 py-0.5 text-xs text-gray-600 ${
+                        needsDescription ? 'border-red-400 bg-red-50' : 'border-gray-200'
+                      }`}
                     />
+                    {nameProblem && <p className="mt-1 text-[11px] text-red-600">{nameProblem}</p>}
+                    {needsDescription && (
+                      <p className="mt-1 text-[11px] text-red-600">
+                        a band needs a description — it is what the story writer picks on
+                      </p>
+                    )}
                     {isSel && (
                       <p className="mt-1 text-[11px] text-gray-400">
                         {z.polygon?.length ?? 0} points · drag dots to move · double-click an edge to
@@ -778,6 +878,14 @@ export default function BackgroundEditorPage() {
                   </div>
                 );
               })}
+              {(() => {
+                const problem = bandDepthProblem(data.zones);
+                return problem ? (
+                  <p className="rounded border border-red-300 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                    {problem}
+                  </p>
+                ) : null;
+              })()}
               {data.zones.length === 0 && !drawing && (
                 <p className="rounded border border-dashed border-gray-300 p-3 text-xs text-gray-400">
                   No zones. Click <b>draw zone</b> to add as many named regions as you like — the

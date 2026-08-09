@@ -139,6 +139,12 @@ export interface BgZone {
   description: string;
   // Custom overlay colour (hex, e.g. "#22c55e"). Editor-only display aid.
   color?: string;
+  // Depth band: orders this plate's floor strips back-to-front, from 1. A zone
+  // without a depth is an ordinary zone and no band rule applies to it.
+  depth?: number | null;
+  // Multiplier on the height a character standing on this band is drawn at.
+  // Only meaningful with a depth — the backend rejects one without the other.
+  scale?: number | null;
   // Client-only stable id for per-zone undo + React keys (backend ignores it).
   _uid?: number;
 }

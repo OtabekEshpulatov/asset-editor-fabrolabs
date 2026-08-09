@@ -24,6 +24,7 @@ from app.backgrounds import (
     _clampf,
     _default_surface,
     _num,
+    _zone_sort_key,
 )
 from app.storage import json_store, minio
 
@@ -96,8 +97,32 @@ def _write_manifest(doc: dict[str, Any]) -> None:
     )
 
 
+class SidecarWriteError(RuntimeError):
+    """The co-located zone document could not be written to storage."""
+
+
+class ManifestWriteError(RuntimeError):
+    """The zone document WAS stored, but the aggregate index was not updated.
+
+    The mirror image of SidecarWriteError, and the state that ordering the two
+    writes creates: whichever goes second can fail with the first already
+    committed. The two need different messages because they need opposite
+    reactions — retype the edit, or do not.
+    """
+
+
 def _write_sidecar(slug: str, entry: dict[str, Any]) -> None:
-    """Co-locate the per-video config next to its mp4 (best-effort)."""
+    """Write the per-video config next to its mp4.
+
+    NOT best-effort, unlike the still-background sidecar. That one can be
+    best-effort because its aggregate index is the recovery path; this one is
+    the file the story engine actually reads, and nothing ever rebuilds it from
+    the manifest. A swallowed failure here does not lose data — the manifest
+    still has it — it silently leaves the pipeline reading a stale document
+    while the editor shows the artist their new one. Since a zone now carries
+    names and descriptions a human typed, that divergence is invisible and
+    unrecoverable-by-guessing, so it fails the request instead.
+    """
     key = video_key(slug)
     sidecar_key = (key.rsplit(".", 1)[0] + ".json") if key else f"{LIVE_PREFIX}{slug}.json"
     try:
@@ -107,7 +132,11 @@ def _write_sidecar(slug: str, entry: dict[str, Any]) -> None:
             content_type="application/json",
         )
     except Exception as exc:
-        log.warning("videos: sidecar upload failed for %s: %r", slug, exc)
+        log.error("videos: sidecar upload failed for %s (%s): %r", slug, sidecar_key, exc)
+        raise SidecarWriteError(
+            f"could not write the zone document to {sidecar_key} — nothing was saved. "
+            "Check the storage connection and try again."
+        ) from exc
 
 
 # --- gallery catalog --------------------------------------------------------
@@ -157,14 +186,19 @@ def editable_entry_for_slug(slug: str) -> dict[str, Any] | None:
             poly = [[0.0, ys], [100.0, ys], [100.0, ye], [0.0, ye]]
         polygon = [[_clampf(p[0]), _clampf(p[1])] for p in poly
                    if isinstance(p, (list, tuple)) and len(p) >= 2]
-        zones.append({
+        item: dict[str, Any] = {
             "name": str(name),
             "description": str(zone.get("description") or ""),
             "polygon": polygon,
             "surface": str(zone.get("surface") or _default_surface(str(name))),
             "color": zone.get("color"),
-        })
-    zones.sort(key=lambda z: min((p[1] for p in z["polygon"]), default=0))
+        }
+        # Round-trip the band fields, or the next save deletes the bands.
+        for field in ("depth", "scale"):
+            if zone.get(field) is not None:
+                item[field] = zone[field]
+        zones.append(item)
+    zones.sort(key=_zone_sort_key)
     return {
         "slug": slug,
         "manifest_key": key,
@@ -209,8 +243,23 @@ def save_entry_for_slug(slug: str, payload: dict[str, Any]) -> dict[str, Any]:
     entry.pop("scene_type", None)  # converge on the lean schema
 
     doc[slug] = entry
-    _write_manifest(doc)
+    # Sidecar first, on purpose. Neither order is hole-free — whichever runs
+    # second can fail with the first already committed — but this one puts the
+    # recoverable half second: an aggregate behind the sidecar is a stale index
+    # over correct data, while an aggregate ahead of it would be an edit the
+    # pipeline never sees. Both halves report, and they say opposite things,
+    # because "nothing was saved" and "it was saved, the index wasn't" call for
+    # opposite reactions from the artist.
     _write_sidecar(slug, entry)
+    try:
+        _write_manifest(doc)
+    except Exception as exc:
+        log.error("videos: manifest write failed for %s (sidecar already stored): %r", slug, exc)
+        raise ManifestWriteError(
+            f"the zones for {slug!r} were written to storage and the pipeline already has this "
+            f"edit, but the editor's index ({MANIFEST_OBJECT_KEY}) could not be updated. "
+            "Do not re-enter the edit — report this, and reload once storage is healthy."
+        ) from exc
     return editable_entry_for_slug(slug)  # type: ignore[return-value]
 
 

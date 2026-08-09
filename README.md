@@ -13,12 +13,43 @@ What it does:
   per animation).
 - **Rename** assets and per-sprite actions; **enable/disable**; edit descriptions.
 - **Manage sprite actions** — fps, frame count, enable/disable, add new actions.
-- **Edit background zones** visually — drag horizontal zone bands and the
-  character/object placement boxes, and save them back to the manifest.
+- **Edit background zones** visually — trace a polygon around any region, name
+  it, describe it, and say what surface it offers; save writes it back to the
+  manifest and to the co-located sidecar.
+- **Band a plate for depth** — see below.
 
 Edits write to the **same** bucket (`manifests/asset_overrides.json`,
 `manifests/backgrounds_manifest.json`, plus per-asset sidecars), so anything that
 reads that bucket — including `story-gen-exps` — sees the changes immediately.
+
+## Depth bands
+
+A zone can carry a **`depth`**: an integer ordering a plate's floor strips
+back-to-front from 1. That makes it a *band*, and the story engine reads bands
+out of the co-located sidecar to place a character at a depth rather than just
+somewhere on the floor. A band may also carry a **`scale`** — a multiplier on
+the height a character standing there is drawn at, so someone at the back of
+the shot looks further away. A factor, never a pixel size; absent means 1.
+
+**A zone with no `depth` is not a band**, and none of the rules below apply to
+it. That is what keeps banding opt-in: leave the depth box empty and the zone
+behaves exactly as zones always have, on live plates and still backgrounds
+alike. Nothing has to be renamed or described first.
+
+Once a zone does carry a depth, all of it is required, because a half-specified
+band is worse than none:
+
+| field | rule |
+| --- | --- |
+| `name` | 3–24 characters — lowercase letters, digits and `_`, starting with a letter. Not one of `left_edge` `left_third` `center` `right_third` `right_edge`: those name screen positions in the story language, not places on the plate |
+| `description` | non-empty. This is the sentence the story writer picks on, so say which band it is and how much room it has — "a narrow ledge, room for one or two". That prose is the only honest capacity signal; a number would depend on which characters get placed there |
+| `scale` | if given, a finite number above 0 |
+| `depth` | unique per plate, and the depths must run 1..N with no gaps |
+
+The editor checks the name and description as you type, and warns about gaps
+and duplicates under the zone list — but those are hints. The backend is the
+gate: it answers **422** with a message naming the offending zone, and the
+editor shows you that message rather than its own.
 
 ## Run it
 
@@ -71,7 +102,7 @@ docker run -p 8080:8000 -v asset-editor-data:/data <namespace>/asset-editor:late
 ## Deploy (dev VPS)
 
 Deployment lives in **this repo** (moved out of `ai-story-gen`). On push to `main`,
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) lints the backend,
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
 builds the single image, pushes it to **`ghcr.io/otabekeshpulatov/asset-editor-fabrolabs`**, then SSHes
 into the dev VPS and runs [`scripts/deploy.sh`](scripts/deploy.sh), which generates
 `.env`, pulls the image, and brings up [`docker-compose.deploy.yml`](docker-compose.deploy.yml)
@@ -95,6 +126,25 @@ git clone git@github.com:OtabekEshpulatov/asset-editor-fabrolabs.git /opt/asset-
 
 After that, every push to `main` redeploys. Trigger manually via the **Run workflow**
 button (`workflow_dispatch`).
+
+**Nothing is checked before it deploys.** The workflow builds the image and
+ships it; there is no lint, type-check or test step for the backend or either
+frontend, so a green run means "the image built" and nothing more.
+
+What you can run yourself, and what it is worth:
+
+```bash
+npm --prefix frontend run build       # tsc --noEmit + vite build
+npm --prefix frontend-v2 run typecheck && npm --prefix frontend-v2 run test \
+  && npm --prefix frontend-v2 run lint && npm --prefix frontend-v2 run build
+```
+
+Both are green today, so a failure is yours. The backend has no usable
+equivalent: there is no test suite (`backend/tests/` does not exist and pytest
+is not a dependency), and `ruff check backend/app` reports thousands of
+pre-existing findings, so it cannot tell you whether *your* change is clean.
+Compare the count before and after your edit, or lint only the files you
+touched.
 
 ## Local development (without Docker)
 

@@ -251,8 +251,13 @@ export const mockAdapter: DataAdapter = {
     const doc = zones[slug];
     if (!doc) throw new Error(`no background ${slug}`);
     doc.description = body.description;
-    // Drop the client-only _uid before persisting, exactly as the backend does.
-    doc.zones = body.zones.map(({ _uid: _drop, ...z }) => z as BgZone);
+    // Drop the client-only _uid before persisting, exactly as the backend does —
+    // and drop a scale with no depth, which the backend answers 422 for. Mock
+    // mode has no bands in its fixtures, but it must not accept a shape the
+    // real API rejects.
+    doc.zones = body.zones.map(({ _uid: _drop, ...z }) =>
+      (z.depth == null ? { ...z, scale: null } : z) as BgZone,
+    );
     return settle(snapshot(doc), 'write');
   },
 

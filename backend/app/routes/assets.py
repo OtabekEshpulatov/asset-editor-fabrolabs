@@ -205,6 +205,12 @@ class BgZoneIn(BaseModel):
     description: str = ""
     # Optional custom overlay colour (hex) for the editor.
     color: str | None = None
+    # Depth band: an int ordering this plate's floor strips back-to-front, from 1.
+    # A zone without a depth is not a band, and no band rule touches it. `scale`
+    # multiplies the height a character standing here is drawn at; it only means
+    # anything on a band. Both are validated in backgrounds._build_zones.
+    depth: int | None = None
+    scale: float | None = None
     # Legacy y-band — still accepted (migrated to a full-width polygon) for old payloads.
     y_start_pct: float | None = None
     y_end_pct: float | None = None
@@ -281,6 +287,13 @@ async def update_video(slug: str, body: VideoUpdate) -> dict:
         raise HTTPException(status_code=404, detail=f"no video {slug!r}")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except (videos.SidecarWriteError, videos.ManifestWriteError) as exc:
+        # 502, not 500: storage upstream refused a write. Both messages are shown
+        # to the artist, and they differ on the only thing that matters to them —
+        # whether the edit is gone (retype it) or stored but unindexed (do not).
+        # `from exc` keeps the storage error in the chain: the artist gets the
+        # sentence, the log gets the cause.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 # --- live (mp4) background OBJECT editor (drag moving objects + re-render) ----
