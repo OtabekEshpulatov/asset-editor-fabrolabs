@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 from collections import Counter, defaultdict
 from functools import lru_cache
 from pathlib import Path
@@ -66,6 +68,19 @@ ALLOWED_ZONE_NAMES = {
 # Placement surface a zone offers — same vocabulary as object `rest_surface`, so
 # the renderer can drop a rest_surface=tabletop prop into a zone tagged tabletop.
 ALLOWED_SURFACES = ["floor", "water", "wall", "sky", "tabletop", "decor", "none"]
+
+# --- depth bands -------------------------------------------------------------
+# A zone carrying a `depth` is a BAND: one of a plate's floor strips, ordered
+# back-to-front, that a story can stand a character on. A zone WITHOUT a depth
+# is not a band, and every rule below is gated on that — which is what leaves
+# the existing plates and every still background untouched.
+#
+# Unrelated to _DEPTH_FRACTIONS above: that is dead v4 placement math keyed by
+# the words background/midground/foreground, and shares only the English word.
+_BAND_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,23}$")
+# Reserved because these five name screen POSITIONS in the story language; a
+# band naming itself `center` would collide with the position vocabulary.
+_RESERVED_BAND_NAMES = frozenset(_SCREEN_ZONE_FRACTIONS)
 
 # Sensible default surface inferred from a preset zone name (for migration).
 _SURFACE_BY_ZONE = {
@@ -388,17 +403,19 @@ def editable_entry_for_slug(slug: str) -> dict[str, Any] | None:
             poly = [[0.0, ys], [100.0, ys], [100.0, ye], [0.0, ye]]
         polygon = [[_clampf(p[0]), _clampf(p[1])] for p in poly
                    if isinstance(p, (list, tuple)) and len(p) >= 2]
-        zones.append(
-            {
-                "name": str(name),
-                "description": str(zone.get("description") or ""),
-                "polygon": polygon,
-                "surface": str(zone.get("surface") or _default_surface(str(name))),
-                "color": zone.get("color"),
-            }
-        )
-    # Sort top-to-bottom by the polygon's highest point (no stored y-band anymore).
-    zones.sort(key=lambda z: min((p[1] for p in z["polygon"]), default=0))
+        item: dict[str, Any] = {
+            "name": str(name),
+            "description": str(zone.get("description") or ""),
+            "polygon": polygon,
+            "surface": str(zone.get("surface") or _default_surface(str(name))),
+            "color": zone.get("color"),
+        }
+        # Round-trip the band fields, or the next save deletes the bands.
+        for field in ("depth", "scale"):
+            if zone.get(field) is not None:
+                item[field] = zone[field]
+        zones.append(item)
+    zones.sort(key=_zone_sort_key)
     return {
         "slug": slug,
         "manifest_key": key,
@@ -426,10 +443,91 @@ def _editable_placement(placement: Any) -> dict[str, Any]:
     }
 
 
+def _band_fields(z: dict[str, Any], name: str) -> dict[str, Any]:
+    """The band half of one zone, validated. Returns {} when the zone carries no
+    ``depth`` — it is not a band, so nothing is added and its stored doc stays
+    byte-identical to what this module wrote before bands existed."""
+    depth = z.get("depth")
+    scale = z.get("scale")
+
+    if depth is None:
+        if scale is not None:
+            # Never silently drop what the artist typed: a scale means nothing
+            # without a band to apply it to, so say so instead of eating it.
+            raise ValueError(f"zone {name!r} has a scale but no depth — scale only applies to a band")
+        return {}
+
+    if isinstance(depth, bool) or not isinstance(depth, int):
+        raise ValueError(f"band {name!r}: depth must be a whole number, got {depth!r}")
+    if depth < 1:
+        raise ValueError(f"band {name!r}: depth starts at 1 (back of the plate), got {depth}")
+    if not _BAND_NAME_RE.match(name):
+        raise ValueError(
+            f"band {name!r}: a band name is 3-24 characters — lowercase letters, digits and "
+            "underscores, starting with a letter"
+        )
+    if name in _RESERVED_BAND_NAMES:
+        raise ValueError(
+            f"band {name!r}: that is a screen position ({', '.join(sorted(_RESERVED_BAND_NAMES))}), "
+            "not a place on the plate — pick a name for the ground itself"
+        )
+    if not str(z.get("description") or "").strip():
+        raise ValueError(f"band {name!r}: needs a description — it is what the story writer picks on")
+
+    fields: dict[str, Any] = {"depth": depth}
+    if scale is not None:
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)):
+            raise ValueError(f"band {name!r}: scale must be a number, got {scale!r}")
+        # Round BEFORE checking, so the value asserted is the value stored.
+        # Rounded like the polygon points because the same edit must always
+        # store the same bytes — the sidecar feeds a pipeline that requires it.
+        # Checking first would let 0.00004 pass and then store 0.0, which the
+        # editor reads back and can no longer save.
+        scale = round(float(scale), 4)
+        if not math.isfinite(scale) or scale <= 0:
+            raise ValueError(f"band {name!r}: scale must be a finite number above 0, got {scale}")
+        fields["scale"] = scale
+    return fields
+
+
+def _check_band_depths(new_zones: dict[str, dict[str, Any]]) -> None:
+    """Per-plate band rules: depths unique, and running 1..N with no gaps. A
+    plate with no bands is not checked at all."""
+    bands = {name: doc["depth"] for name, doc in new_zones.items() if "depth" in doc}
+    if not bands:
+        return
+
+    by_depth: dict[int, list[str]] = {}
+    for name, depth in bands.items():
+        by_depth.setdefault(depth, []).append(name)
+    for depth, names in sorted(by_depth.items()):
+        if len(names) > 1:
+            listed = ", ".join(repr(n) for n in sorted(names))
+            raise ValueError(f"bands {listed} all have depth {depth} — each band needs its own")
+
+    if sorted(bands.values()) != list(range(1, len(bands) + 1)):
+        listed = ", ".join(f"{n}={bands[n]}" for n in sorted(bands, key=lambda n: (bands[n], n)))
+        raise ValueError(
+            f"band depths must run 1..{len(bands)} back-to-front with no gaps; got {listed}"
+        )
+
+
+def _zone_sort_key(zone: dict[str, Any]) -> tuple[int, float]:
+    """Panel order. Non-bands keep the only ordering this editor ever had —
+    top-to-bottom by the polygon's highest point — and the bands follow,
+    back-to-front by depth. On a plate with no bands this is exactly the old
+    sort, so an un-banded plate lists as it always did."""
+    depth = zone.get("depth")
+    if depth is None:
+        return (0, min((p[1] for p in zone["polygon"]), default=0))
+    return (1, float(depth))
+
+
 def _build_zones(zones_in: list[Any]) -> dict[str, dict[str, Any]]:
     """Validate + normalize editor zones into the lean stored shape:
-    ``{name: {polygon, surface, description, color?}}``. Polygon is the source of
-    truth (a legacy y-band is migrated to a full-width rectangle)."""
+    ``{name: {polygon, surface, description, color?, depth?, scale?}}``. Polygon
+    is the source of truth (a legacy y-band is migrated to a full-width
+    rectangle). ``depth``/``scale`` appear only on bands — see _band_fields."""
     new_zones: dict[str, dict[str, Any]] = {}
     for z in zones_in:
         if not isinstance(z, dict):
@@ -465,7 +563,9 @@ def _build_zones(zones_in: list[Any]) -> dict[str, dict[str, Any]]:
         }
         if z.get("color"):
             zone_doc["color"] = str(z.get("color"))
+        zone_doc.update(_band_fields(z, name))
         new_zones[name] = zone_doc
+    _check_band_depths(new_zones)
     return new_zones
 
 

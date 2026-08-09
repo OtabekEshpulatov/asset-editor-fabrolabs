@@ -205,6 +205,12 @@ class BgZoneIn(BaseModel):
     description: str = ""
     # Optional custom overlay colour (hex) for the editor.
     color: str | None = None
+    # Depth band: an int ordering this plate's floor strips back-to-front, from 1.
+    # A zone without a depth is not a band, and no band rule touches it. `scale`
+    # multiplies the height a character standing here is drawn at; it only means
+    # anything on a band. Both are validated in backgrounds._build_zones.
+    depth: int | None = None
+    scale: float | None = None
     # Legacy y-band — still accepted (migrated to a full-width polygon) for old payloads.
     y_start_pct: float | None = None
     y_end_pct: float | None = None

@@ -24,6 +24,7 @@ from app.backgrounds import (
     _clampf,
     _default_surface,
     _num,
+    _zone_sort_key,
 )
 from app.storage import json_store, minio
 
@@ -157,14 +158,19 @@ def editable_entry_for_slug(slug: str) -> dict[str, Any] | None:
             poly = [[0.0, ys], [100.0, ys], [100.0, ye], [0.0, ye]]
         polygon = [[_clampf(p[0]), _clampf(p[1])] for p in poly
                    if isinstance(p, (list, tuple)) and len(p) >= 2]
-        zones.append({
+        item: dict[str, Any] = {
             "name": str(name),
             "description": str(zone.get("description") or ""),
             "polygon": polygon,
             "surface": str(zone.get("surface") or _default_surface(str(name))),
             "color": zone.get("color"),
-        })
-    zones.sort(key=lambda z: min((p[1] for p in z["polygon"]), default=0))
+        }
+        # Round-trip the band fields, or the next save deletes the bands.
+        for field in ("depth", "scale"):
+            if zone.get(field) is not None:
+                item[field] = zone[field]
+        zones.append(item)
+    zones.sort(key=_zone_sort_key)
     return {
         "slug": slug,
         "manifest_key": key,
