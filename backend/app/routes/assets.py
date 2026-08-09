@@ -287,6 +287,13 @@ async def update_video(slug: str, body: VideoUpdate) -> dict:
         raise HTTPException(status_code=404, detail=f"no video {slug!r}")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except (videos.SidecarWriteError, videos.ManifestWriteError) as exc:
+        # 502, not 500: storage upstream refused a write. Both messages are shown
+        # to the artist, and they differ on the only thing that matters to them —
+        # whether the edit is gone (retype it) or stored but unindexed (do not).
+        # `from exc` keeps the storage error in the chain: the artist gets the
+        # sentence, the log gets the cause.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 # --- live (mp4) background OBJECT editor (drag moving objects + re-render) ----
