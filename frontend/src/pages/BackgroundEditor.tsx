@@ -770,41 +770,6 @@ export default function BackgroundEditorPage() {
                           nameProblem ? 'border-red-400 bg-red-50' : 'border-gray-300'
                         }`}
                       />
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={z.depth ?? ''}
-                        onChange={(e) => {
-                          snapshotZone(z._uid, 'depth:' + z._uid);
-                          const v = e.target.value.trim();
-                          // Only the depth moves. A number input reports '' for
-                          // any half-typed value, so backspacing a digit before
-                          // retyping must not be read as "stop being a band" —
-                          // that used to take the scale with it, silently. The
-                          // orphaned scale is stripped when the payload is built.
-                          updateZone(i, v === '' ? { depth: null } : { depth: Number(v) });
-                        }}
-                        placeholder="depth"
-                        title="depth band: 1 is furthest back. Leave empty for an ordinary zone."
-                        className="w-14 rounded border border-gray-300 px-1 py-0.5 text-xs"
-                      />
-                      {(isBand || z.scale != null) && (
-                        <input
-                          type="number"
-                          min={0.01}
-                          step={0.05}
-                          value={z.scale ?? ''}
-                          onChange={(e) => {
-                            snapshotZone(z._uid, 'scale:' + z._uid);
-                            const v = e.target.value.trim();
-                            updateZone(i, v === '' ? { scale: null } : { scale: Number(v) });
-                          }}
-                          placeholder="scale"
-                          title="how big a character standing here is drawn, relative to normal. 1 = normal, empty = 1."
-                          className="w-16 rounded border border-gray-300 px-1 py-0.5 text-xs"
-                        />
-                      )}
                       <select
                         value={z.surface ?? 'none'}
                         onChange={(e) => {
@@ -834,6 +799,54 @@ export default function BackgroundEditorPage() {
                       >
                         ✕
                       </button>
+                    </div>
+                    {/* Own line: the row above already fills the panel, so
+                        these cannot share it without pushing its buttons off. */}
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-[11px] text-gray-400">depth</span>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={z.depth ?? ''}
+                        onChange={(e) => {
+                          snapshotZone(z._uid, 'depth:' + z._uid);
+                          const v = e.target.value.trim();
+                          // Only the depth moves. A number input reports '' for
+                          // any half-typed value, so backspacing a digit before
+                          // retyping must not be read as "stop being a band" —
+                          // that used to take the scale with it, silently. The
+                          // orphaned scale is stripped when the payload is built.
+                          updateZone(i, v === '' ? { depth: null } : { depth: Number(v) });
+                        }}
+                        title="depth band: 1 is furthest back. Leave empty for an ordinary zone."
+                        aria-label={`depth of ${z.name}`}
+                        className="w-14 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                      />
+                      {(isBand || z.scale != null) && (
+                        <>
+                          <span className="text-[11px] text-gray-400">scale</span>
+                          <input
+                            type="number"
+                            min={0.01}
+                            step={0.05}
+                            value={z.scale ?? ''}
+                            onChange={(e) => {
+                              snapshotZone(z._uid, 'scale:' + z._uid);
+                              const v = e.target.value.trim();
+                              updateZone(i, v === '' ? { scale: null } : { scale: Number(v) });
+                            }}
+                            title="how big a character standing here is drawn, relative to normal. 1 = normal, empty = 1."
+                            aria-label={`render scale of ${z.name}`}
+                            className="w-16 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                          />
+                        </>
+                      )}
+                      {!isBand && (
+                        <span className="text-[11px] text-gray-400">
+                          — empty means an ordinary zone
+                        </span>
+                      )}
                     </div>
                     <input
                       value={z.description}

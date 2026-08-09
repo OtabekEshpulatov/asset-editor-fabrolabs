@@ -40,7 +40,15 @@ import type {
   WorldGraph,
 } from '../types';
 import { ASSET_KINDS } from '../types';
-import { V4, api } from './client';
+import { ApiError, V4, api } from './client';
+
+/** A slug is either a still background or a live scene and nothing up front says
+ *  which, so both background calls try the video route and fall back. Fall back
+ *  ONLY on a 404 — "that route does not have this slug". Every other failure is
+ *  about the request itself (a 422 from band validation, a 502 from a failed
+ *  sidecar write), and reissuing it against the other route buries the real
+ *  message under a 404 about a background that was never involved. */
+const isMissing = (e: unknown) => e instanceof ApiError && e.status === 404;
 
 const DEFAULT_LIMIT = 60;
 
@@ -348,11 +356,10 @@ export const httpAdapter: DataAdapter = {
   },
 
   async getBackgroundDoc(slug) {
-    // A slug is either a still background or a live scene; the routes differ and
-    // nothing up front says which, so try the video route and fall back.
     try {
       return toBackgroundDoc(await api.get<BackgroundDoc>(`${V4}/videos/${encodeURIComponent(slug)}`));
-    } catch {
+    } catch (e) {
+      if (!isMissing(e)) throw e;
       return toBackgroundDoc(
         await api.get<BackgroundDoc>(`${V4}/backgrounds/${encodeURIComponent(slug)}`),
       );
@@ -360,7 +367,11 @@ export const httpAdapter: DataAdapter = {
   },
 
   async saveBackgroundDoc(slug, body) {
-    const zones = body.zones.map(({ _uid: _drop, ...z }) => z as BgZone);
+    // A scale means nothing without a depth and the backend rejects the pair,
+    // so an un-banded zone never carries one to the wire.
+    const zones = body.zones.map(({ _uid: _drop, ...z }) =>
+      (z.depth == null ? { ...z, scale: null } : z) as BgZone,
+    );
     try {
       const saved = await api.put<BackgroundDoc>(`${V4}/videos/${encodeURIComponent(slug)}`, {
         description: body.description,
@@ -368,7 +379,8 @@ export const httpAdapter: DataAdapter = {
       });
       invalidateCatalogs();
       return toBackgroundDoc(saved);
-    } catch {
+    } catch (e) {
+      if (!isMissing(e)) throw e;
       const saved = await api.put<BackgroundDoc>(`${V4}/backgrounds/${encodeURIComponent(slug)}`, {
         description: body.description,
         zones,

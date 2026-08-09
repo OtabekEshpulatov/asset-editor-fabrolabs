@@ -11,6 +11,37 @@ import { centroid, clampPct, nearestEdge, zoneColor } from './zoneColors';
 
 const TRACE_MIN_DIST = 1.5; // % — minimum spacing between freehand-sampled points
 
+// --- depth bands -------------------------------------------------------------
+// A zone with a depth is a band: one of the plate's floor strips, ordered
+// back-to-front. The backend is the gate (it answers 422); these checks only
+// exist so a bad name is visible while typing instead of after a save round-trip.
+// Keep them in step with backgrounds._band_fields.
+const BAND_NAME_RE = /^[a-z][a-z0-9_]{2,23}$/;
+const SCREEN_POSITIONS = ['left_edge', 'left_third', 'center', 'right_third', 'right_edge'];
+
+const bandNameProblem = (name: string): string | null => {
+  // The server strips the name before every rule, so checking the raw value
+  // here would redden a name it goes on to accept.
+  const n = name.trim();
+  if (SCREEN_POSITIONS.includes(n)) return `“${n}” is a screen position, not a place on the plate`;
+  if (!BAND_NAME_RE.test(n))
+    return '3–24 characters: lowercase letters, digits and _, starting with a letter';
+  return null;
+};
+
+// Depths must run 1..n with no gaps and no repeats, per plate.
+const bandDepthProblem = (zones: BgZone[]): string | null => {
+  const depths = zones.map((z) => z.depth).filter((d): d is number => typeof d === 'number');
+  if (!depths.length) return null;
+  const dupes = depths.filter((d, i) => depths.indexOf(d) !== i);
+  // Deliberately does not say how many or which — the 422 names them all.
+  if (dupes.length) return `More than one band is on depth ${dupes[0]}`;
+  const sorted = [...depths].sort((a, b) => a - b);
+  if (sorted.some((d, i) => d !== i + 1))
+    return `Depths must run 1–${depths.length} with no gaps (now ${sorted.join(', ')})`;
+  return null;
+};
+
 type Drag = { zone: number; vertex: number } | null;
 
 /**
@@ -497,6 +528,9 @@ export function ZoneEditor({
             <div className="space-y-2">
               {zones.map((z, i) => {
                 const isSel = selected === i;
+                const isBand = typeof z.depth === 'number';
+                const nameProblem = isBand ? bandNameProblem(z.name) : null;
+                const needsDescription = isBand && !z.description.trim();
                 return (
                   <div
                     key={z._uid ?? i}
@@ -522,7 +556,10 @@ export function ZoneEditor({
                           snapshot(z._uid, `name:${z._uid}`);
                           updateZone(i, { name: e.target.value });
                         }}
-                        className="h-7 w-24 font-mono text-xs"
+                        className={cn(
+                          'h-7 w-24 font-mono text-xs',
+                          nameProblem && 'border-destructive bg-destructive/5',
+                        )}
                         placeholder="name"
                       />
                       <Select
@@ -548,10 +585,59 @@ export function ZoneEditor({
                         size="icon-sm"
                         onClick={() => removeZone(i)}
                         aria-label={`Delete ${z.name}`}
-                        className="text-muted-foreground hover:text-destructive"
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
                       >
                         <Trash2 />
                       </Button>
+                    </div>
+
+                    {/* Own line: the panel is a fixed 320px and the row above
+                        already fills it, so these cannot share it. */}
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <span className="text-2xs text-muted-foreground">depth</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={z.depth ?? ''}
+                        onChange={(e) => {
+                          snapshot(z._uid, `depth:${z._uid}`);
+                          const v = e.target.value.trim();
+                          // Only the depth moves. A number input reports '' for
+                          // any half-typed value, so backspacing a digit before
+                          // retyping must not read as "stop being a band" and
+                          // take the scale with it. The adapter strips an
+                          // orphaned scale when it builds the payload.
+                          updateZone(i, v === '' ? { depth: null } : { depth: Number(v) });
+                        }}
+                        title="Depth band: 1 is furthest back. Empty means an ordinary zone."
+                        aria-label={`Depth of ${z.name}`}
+                        className="h-7 w-14 text-xs"
+                      />
+                      {(isBand || z.scale != null) && (
+                        <>
+                          <span className="text-2xs text-muted-foreground">scale</span>
+                          <Input
+                            type="number"
+                            min={0.01}
+                            step={0.05}
+                            value={z.scale ?? ''}
+                            onChange={(e) => {
+                              snapshot(z._uid, `scale:${z._uid}`);
+                              const v = e.target.value.trim();
+                              updateZone(i, v === '' ? { scale: null } : { scale: Number(v) });
+                            }}
+                            title="How big a character standing here is drawn, relative to normal. 1 = normal, empty = 1."
+                            aria-label={`Render scale of ${z.name}`}
+                            className="h-7 w-16 text-xs"
+                          />
+                        </>
+                      )}
+                      {!isBand && (
+                        <span className="text-2xs text-muted-foreground">
+                          — empty means an ordinary zone
+                        </span>
+                      )}
                     </div>
 
                     <Input
@@ -560,9 +646,24 @@ export function ZoneEditor({
                         snapshot(z._uid, `desc:${z._uid}`);
                         updateZone(i, { description: e.target.value });
                       }}
-                      placeholder="What the engine may place here…"
-                      className="mt-1.5 h-7 text-xs"
+                      placeholder={
+                        isBand
+                          ? 'Which band is this, in prose — say how much room it has ("a narrow ledge, room for one or two")…'
+                          : 'What the engine may place here…'
+                      }
+                      className={cn(
+                        'mt-1.5 h-7 text-xs',
+                        needsDescription && 'border-destructive bg-destructive/5',
+                      )}
                     />
+                    {nameProblem && (
+                      <p className="mt-1 text-2xs text-destructive">{nameProblem}</p>
+                    )}
+                    {needsDescription && (
+                      <p className="mt-1 text-2xs text-destructive">
+                        A band needs a description — it is what the story writer picks on.
+                      </p>
+                    )}
 
                     <div className="mt-1.5 flex items-center justify-between">
                       <span className="text-2xs text-muted-foreground">
@@ -586,6 +687,15 @@ export function ZoneEditor({
                   </div>
                 );
               })}
+
+              {(() => {
+                const problem = bandDepthProblem(zones);
+                return problem ? (
+                  <p className="rounded-lg border border-destructive bg-destructive/5 px-2 py-1 text-2xs text-destructive">
+                    {problem}
+                  </p>
+                ) : null;
+              })()}
 
               {zones.length === 0 && !drawing && (
                 <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
