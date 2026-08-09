@@ -106,8 +106,14 @@ class ManifestWriteError(RuntimeError):
 
     The mirror image of SidecarWriteError, and the state that ordering the two
     writes creates: whichever goes second can fail with the first already
-    committed. The two need different messages because they need opposite
-    reactions — retype the edit, or do not.
+    committed.
+
+    Note this is the WORSE half for a live background, which is why the message
+    is so specific. Still backgrounds can recover — `rebuild_index_from_sidecars`
+    reads their sidecars back. Live ones have no such path, and
+    `editable_entry_for_slug` reads only the manifest, so the surviving half is
+    the half the editor cannot see. Anything saved from that stale view
+    overwrites the good sidecar.
     """
 
 
@@ -256,9 +262,11 @@ def save_entry_for_slug(slug: str, payload: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         log.error("videos: manifest write failed for %s (sidecar already stored): %r", slug, exc)
         raise ManifestWriteError(
-            f"the zones for {slug!r} were written to storage and the pipeline already has this "
-            f"edit, but the editor's index ({MANIFEST_OBJECT_KEY}) could not be updated. "
-            "Do not re-enter the edit — report this, and reload once storage is healthy."
+            f"the zones for {slug!r} reached storage and the pipeline has this edit, but the "
+            f"editor's index ({MANIFEST_OBJECT_KEY}) could not be updated. This editor reads "
+            "the index, so it will keep showing the PREVIOUS zones — do not save anything "
+            "else from that view, it would overwrite what was just stored. Report this, then "
+            "re-enter and save this edit again once storage is healthy."
         ) from exc
     return editable_entry_for_slug(slug)  # type: ignore[return-value]
 
