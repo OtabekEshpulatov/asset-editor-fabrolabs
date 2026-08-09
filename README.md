@@ -139,12 +139,33 @@ npm --prefix frontend-v2 run typecheck && npm --prefix frontend-v2 run test \
   && npm --prefix frontend-v2 run lint && npm --prefix frontend-v2 run build
 ```
 
-Both are green today, so a failure is yours. The backend has no usable
-equivalent: there is no test suite (`backend/tests/` does not exist and pytest
-is not a dependency), and `ruff check backend/app` reports thousands of
-pre-existing findings, so it cannot tell you whether *your* change is clean.
-Compare the count before and after your edit, or lint only the files you
-touched.
+Both are green today, so a failure is yours.
+
+The backend is thinner but not bare — 68 tests live in
+`backend/app/livebg/tests/`. Pytest is not a declared dependency and nothing
+runs them, so from `backend/`:
+
+```bash
+pip install pytest && python -m pytest app/livebg/tests   # 68 green, ~2s
+```
+
+They cover the live-bg re-render service, not zones — but they import
+`app.videos` and `app.backgrounds`, so they do catch a broken symbol in either.
+Renaming `_zone_sort_key` in `backgrounds.py` turns three of them red, which is
+the whole reason they are worth running after a backend edit.
+
+For lint, **run it from `backend/`** (ruff is configured here but not installed
+by anything, so `uvx` fetches it):
+
+```bash
+cd backend && uvx ruff check app     # 99 pre-existing findings
+```
+
+Not from the repo root. `extend-exclude` in `backend/pyproject.toml` is relative
+to that directory, so `ruff check backend/app` from the root silently stops
+excluding the generated `static_asset_catalog.py` and reports 5,921 — 5,853 of
+them line-too-long in a file nobody edits. 99 is a baseline you can diff against;
+5,921 is noise that will teach you to ignore the command.
 
 ## Local development (without Docker)
 
