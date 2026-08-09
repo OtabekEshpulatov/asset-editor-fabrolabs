@@ -1,8 +1,12 @@
 name: Deploy asset-editor to Dev
 
 # Standalone deploy for the asset-editor, moved out of the ai-story-gen repo.
-# Push to main -> lint -> build & push the single image to GHCR -> SSH to the
-# dev VPS, reset this repo's server checkout, and `docker compose up`.
+# Push to main -> build & push the single image to GHCR -> SSH to the dev VPS,
+# reset this repo's server checkout, and `docker compose up`.
+#
+# There is NO lint, type-check or test step here — this said "lint" for a while
+# and never had one. Adding a gate is worth doing; until then, do not read a
+# green run as anything more than "the image built".
 
 on:
   push:
