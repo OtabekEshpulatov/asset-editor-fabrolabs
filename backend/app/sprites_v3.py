@@ -38,37 +38,45 @@ def _load_curated() -> list[dict[str, str]]:
     return [x for x in chars if isinstance(x, dict) and x.get("slug")]
 
 
+def character_item(slug: str, *, include_disabled: bool = False) -> dict[str, Any] | None:
+    """One v1 character as a gallery item whose ``animation_urls`` are its live sprite sheets (built the
+    exact same way as the character catalog in routes/assets.py, so URLs/fps/rev stay consistent).
+    None when it is disabled (and those are hidden) or has no sheet to show."""
+    enabled = overrides.is_enabled("character", slug)
+    if not enabled and not include_disabled:
+        return None
+    entry = char_catalog.get_character(slug) or {}
+    anim_urls = {
+        anim: url
+        for anim, value in (entry.get("animation_urls") or {}).items()
+        if (url := _spritesheet_url(value))
+        and (include_disabled or overrides.is_action_enabled(slug, anim))
+    }
+    if not anim_urls:
+        return None
+    default = next((a for a in ("idle", "happy", "move") if a in anim_urls), None)
+    cfg = overrides.asset_config("character", slug)
+    return {
+        "slug": slug,
+        "url": anim_urls.get(default) if default else next(iter(anim_urls.values())),
+        "description": cfg.get("description", ""),
+        "enabled": enabled,
+        "animation_urls": anim_urls,
+        "action_fps": {a: overrides.action_fps(slug, a) for a in anim_urls},
+        "action_rev": {a: overrides.action_rev(slug, a) for a in anim_urls},
+    }
+
+
 def catalog(*, include_disabled: bool = False) -> dict[str, Any]:
     """Same ``{kind, total, categories}`` shape the gallery expects, grouped by the curated category.
-    Each curated character is one item whose ``animation_urls`` are its live v1 sprite sheets (built the
-    exact same way as the character catalog in routes/assets.py, so URLs/fps/rev stay consistent)."""
+    Each curated character is one item from ``character_item``."""
     tree: dict[str, list[dict[str, Any]]] = {}
     for item in _load_curated():
-        slug = item["slug"]
         category = str(item.get("category") or "uncategorized")
-        enabled = overrides.is_enabled("character", slug)
-        if not enabled and not include_disabled:
-            continue
-        entry = char_catalog.get_character(slug) or {}
-        anim_urls = {
-            anim: url
-            for anim, value in (entry.get("animation_urls") or {}).items()
-            if (url := _spritesheet_url(value))
-            and (include_disabled or overrides.is_action_enabled(slug, anim))
-        }
-        if not anim_urls:
+        entry = character_item(item["slug"], include_disabled=include_disabled)
+        if entry is None:
             continue                                   # curated but not generated yet -> skip
-        default = next((a for a in ("idle", "happy", "move") if a in anim_urls), None)
-        cfg = overrides.asset_config("character", slug)
-        tree.setdefault(category, []).append({
-            "slug": slug,
-            "url": anim_urls.get(default) if default else next(iter(anim_urls.values())),
-            "description": cfg.get("description", ""),
-            "enabled": enabled,
-            "animation_urls": anim_urls,
-            "action_fps": {a: overrides.action_fps(slug, a) for a in anim_urls},
-            "action_rev": {a: overrides.action_rev(slug, a) for a in anim_urls},
-        })
+        tree.setdefault(category, []).append(entry)
 
     categories = [
         {"name": cat, "count": len(items), "items": sorted(items, key=lambda x: x["slug"])}

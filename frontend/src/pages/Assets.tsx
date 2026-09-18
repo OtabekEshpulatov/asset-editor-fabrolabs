@@ -15,7 +15,8 @@ function withRev(url: string | undefined, rev?: number): string | undefined {
   return url + (url.includes('?') ? '&' : '?') + 'rev=' + rev;
 }
 
-const KIND_TABS: { key: AssetKind; label: string }[] = [
+// `hint` is shown as a tooltip when the tab is hovered or focused.
+const KIND_TABS: { key: AssetKind; label: string; hint?: string }[] = [
   { key: 'character', label: 'Sprites' },
   { key: 'background', label: 'Backgrounds' },
   { key: 'object', label: 'Objects' },
@@ -27,9 +28,19 @@ const KIND_TABS: { key: AssetKind; label: string }[] = [
   { key: 'intro_music', label: 'Intro Musics' },
   { key: 'animation', label: 'Animations v2' },
   { key: 'animation_v3', label: 'Animations v3' },
+  {
+    key: 'animation_v4',
+    label: 'Animations v4',
+    hint: 'Moonykids. What Happened Today, Bedtime Stories, Grow and Learn animations.',
+  },
 ];
 
-const ANIM_PREFERENCE = ['idle', 'happy', 'move'];
+// Kinds whose items are characters with sprite-sheet animations.
+const SPRITE_KINDS: AssetKind[] = ['character', 'animation', 'animation_v3', 'animation_v4'];
+
+// Animals have no plain `idle`, only `idle_right`/`idle_left`; without those here
+// a card falls back to its alphabetically first action, which is usually `angry_*`.
+const ANIM_PREFERENCE = ['idle', 'idle_right', 'idle_left', 'happy', 'move'];
 
 function animLabel(name: string): string {
   return name === 'idle_3q' ? 'idle ¾' : name;
@@ -254,6 +265,7 @@ function Lightbox({
   onRenamed,
   onManageActions,
   onChanged,
+  renameBlockedReason,
 }: {
   kind: AssetKind;
   item: AssetCatalogItem;
@@ -261,8 +273,10 @@ function Lightbox({
   onRenamed: () => void;
   onManageActions: () => void;
   onChanged: () => void;
+  /** set when this gallery can't rename the asset; shown in place of the rename control */
+  renameBlockedReason?: string;
 }) {
-  const isSprite = kind === 'character' || kind === 'animation' || kind === 'animation_v3';
+  const isSprite = SPRITE_KINDS.includes(kind);
   const isVideo = kind === 'video' || kind === 'video_v2' || kind === 'intro' || kind === 'intro_end';
   const anims = item.animation_urls ?? {};
   const names = Object.keys(anims).sort();
@@ -390,6 +404,10 @@ function Lightbox({
               </button>
               {renameError && <span className="text-xs text-red-600">{renameError}</span>}
             </div>
+          ) : renameBlockedReason ? (
+            <span className="font-mono text-sm text-gray-800" title={renameBlockedReason}>
+              {item.slug}
+            </span>
           ) : (
             <button
               onClick={() => setRenaming(true)}
@@ -690,6 +708,67 @@ function SpriteSection({
   );
 }
 
+const HINT_WIDTH = 288; // px
+
+// A kind tab. Its `hint`, if any, shows as a tooltip on hover or keyboard focus.
+function KindTab({
+  tab,
+  active,
+  total,
+  onSelect,
+}: {
+  tab: (typeof KIND_TABS)[number];
+  active: boolean;
+  total?: number;
+  onSelect: () => void;
+}) {
+  // The tooltip hangs leftward from the tab's right edge, which keeps it on
+  // screen at the end of a row. When the tab wraps to the start of a row
+  // there's no room on the left, so it hangs rightward instead — decided each
+  // time it is about to show, as the row reflows with the window.
+  const [hangRight, setHangRight] = useState(false);
+  const place = (el: HTMLElement) =>
+    setHangRight(el.getBoundingClientRect().right < HINT_WIDTH + 16);
+  const hintId = `kind-hint-${tab.key}`;
+  return (
+    <div
+      className="group relative"
+      onMouseEnter={tab.hint ? (e) => place(e.currentTarget) : undefined}
+      onFocus={tab.hint ? (e) => place(e.currentTarget) : undefined}
+    >
+      <button
+        onClick={onSelect}
+        aria-describedby={tab.hint ? hintId : undefined}
+        className={[
+          'rounded-full border px-3 py-1 text-sm',
+          active
+            ? 'border-blue-600 bg-blue-50 text-blue-800'
+            : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50',
+        ].join(' ')}
+      >
+        {tab.label}
+        {total !== undefined ? ` (${total})` : ''}
+      </button>
+      {tab.hint && (
+        <span
+          id={hintId}
+          role="tooltip"
+          style={{ width: HINT_WIDTH }}
+          // display:none (not visibility) while hidden, so a tooltip that
+          // would hang off-screen never adds a page scrollbar.
+          className={[
+            'pointer-events-none absolute top-full z-20 mt-1.5 hidden rounded-md bg-gray-900 px-2.5 py-1.5 text-xs leading-snug text-white shadow-lg',
+            'group-focus-within:block group-hover:block',
+            hangRight ? 'left-0' : 'right-0',
+          ].join(' ')}
+        >
+          {tab.hint}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function AssetsPage() {
   // Gallery view-state lives in the URL so it survives reloads and round-trips
   // to the zone editor — the tab, search, category filter, and which sections
@@ -775,25 +854,16 @@ export default function AssetsPage() {
 
       <div className="sticky top-0 z-10 -mx-6 space-y-3 border-b bg-gray-50/90 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
-          {KIND_TABS.map((t) => {
-            const active = t.key === kind;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setKind(t.key)}
-                className={[
-                  'rounded-full border px-3 py-1 text-sm',
-                  active
-                    ? 'border-blue-600 bg-blue-50 text-blue-800'
-                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50',
-                ].join(' ')}
-              >
-                {t.label}
-                {data && active ? ` (${data.total})` : ''}
-              </button>
-            );
-          })}
-          {kind !== 'video' && kind !== 'video_v3' && kind !== 'animation' && kind !== 'animation_v3' && (
+          {KIND_TABS.map((t) => (
+            <KindTab
+              key={t.key}
+              tab={t}
+              active={t.key === kind}
+              total={t.key === kind ? data?.total : undefined}
+              onSelect={() => setKind(t.key)}
+            />
+          ))}
+          {kind !== 'video' && kind !== 'video_v3' && kind !== 'animation' && kind !== 'animation_v3' && kind !== 'animation_v4' && (
             <button
               onClick={() => setAdding(true)}
               disabled={!data}
@@ -861,7 +931,7 @@ export default function AssetsPage() {
             collapsed={collapsed.has(c.name)}
             onToggleCollapse={() => toggleCollapse(c.name)}
           />
-        ) : kind === 'character' || kind === 'animation' || kind === 'animation_v3' ? (
+        ) : SPRITE_KINDS.includes(kind) ? (
           <SpriteSection
             key={c.name}
             category={c.name}
@@ -869,7 +939,7 @@ export default function AssetsPage() {
             onOpen={setSelected}
             collapsed={collapsed.has(c.name)}
             onToggleCollapse={() => toggleCollapse(c.name)}
-            hoverToPlay={kind === 'character' || kind === 'animation' || kind === 'animation_v3'}
+            hoverToPlay
           />
         ) : (
           <section key={c.name} className="space-y-2">
@@ -904,7 +974,14 @@ export default function AssetsPage() {
 
       {selected && (
         <Lightbox
-          kind={kind}
+          // v4 re-presents library characters, and the admin endpoints only know
+          // them as 'character' — so enable/config act on the character itself.
+          kind={kind === 'animation_v4' ? 'character' : kind}
+          renameBlockedReason={
+            kind === 'animation_v4'
+              ? 'Not renamable here: the Moonykids stories cast this character by this slug.'
+              : undefined
+          }
           item={selected}
           onClose={() => setSelected(null)}
           onRenamed={() => {

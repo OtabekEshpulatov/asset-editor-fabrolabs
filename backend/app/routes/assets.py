@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from app import asset_admin, backgrounds, connection, end_intros, intro_music, intros, live_bgs_v2, live_bgs_v3, posters, sprites_v2, sprites_v3, videos
+from app import asset_admin, backgrounds, connection, end_intros, intro_music, intros, live_bgs_v2, live_bgs_v3, posters, sprites_v2, sprites_v3, sprites_v4, videos
 from app.asset_urls import _spritesheet_url, resolve_asset_url
 from app.livebg import service as livebg_service
 from app.catalog import catalog, overrides
@@ -144,6 +144,9 @@ async def asset_catalog(kind: AssetKind, include_disabled: bool = False) -> dict
     if kind == "animation_v3":
         # Animations v3: a curated subset of v1 characters (manifests/v3_curated.json), no duplication.
         return sprites_v3.catalog(include_disabled=include_disabled)
+    if kind == "animation_v4":
+        # Animations v4: the Moonykids cast, grouped by the product that uses it — also no duplication.
+        return sprites_v4.catalog(include_disabled=include_disabled)
     categories_map = _CATEGORY_MAPS[kind]
     categories: list[dict] = []
     total = 0
@@ -553,10 +556,10 @@ async def config_view(slug: str, kind: AssetKind = "character", action: str | No
             return end_intros.config_view(slug)
         if kind == "intro_music":
             return intro_music.config_view(slug)
-        # The animation galleries (Animations / Animations v3) re-present existing
+        # The animation galleries (Animations / Animations v3 / v4) re-present existing
         # character sprites, so an asset-level config request there is really a
         # request for the underlying character's config.
-        if action is None and kind in ("animation", "animation_v3"):
+        if action is None and kind in ("animation", "animation_v3", "animation_v4"):
             kind = "character"
         return asset_admin.get_config_view(kind=kind, slug=slug, action=action)
     except (KeyError, ValueError) as exc:

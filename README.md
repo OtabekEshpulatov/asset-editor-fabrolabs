@@ -17,6 +17,9 @@ What it does:
   it, describe it, and say what surface it offers; save writes it back to the
   manifest and to the co-located sidecar.
 - **Band a plate for depth** — see below.
+- **See the Moonykids cast** — the **Animations v4** tab shows every character
+  the What Happened Today, Bedtime Stories and Grow and Learn stories use, with
+  all their animations. See [docs/animations-v4.md](docs/animations-v4.md).
 
 Edits write to the **same** bucket (`manifests/asset_overrides.json`,
 `manifests/backgrounds_manifest.json`, plus per-asset sidecars), so anything that
