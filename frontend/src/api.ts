@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-export type AssetKind = 'character' | 'object' | 'background' | 'video' | 'video_v2' | 'video_v3' | 'animation' | 'animation_v3' | 'intro' | 'intro_end' | 'intro_music';
+export type AssetKind = 'character' | 'object' | 'background' | 'video' | 'video_v2' | 'video_v3' | 'animation' | 'animation_v3' | 'animation_v4' | 'intro' | 'intro_end' | 'intro_music';
 
 // --- relation backgrounds (Live BG v3): world location graphs ----------------
 
